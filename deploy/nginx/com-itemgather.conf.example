@@ -3,7 +3,9 @@
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
-    http2 on;
+    # 默认使用兼容现有 Nginx 的 HTTPS 配置。需要 HTTP/2 时按版本启用：
+    # Nginx >= 1.25.1：在此添加 http2 on;
+    # 更旧版本：在上面的两个 listen 指令中添加 http2 参数。
     server_name ideas.example.com;
 
     ssl_certificate /etc/nginx/ssl/ideas.example.com/fullchain.pem;

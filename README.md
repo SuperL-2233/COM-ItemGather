@@ -62,13 +62,15 @@ npm run dev
 - 灵感：首次原文与当前正文分离；名称候选、内容类型、商品方向、标签和动态属性都允许为空。收藏按用户隔离。
 - 商品：内部工作名称与最终品牌名分离，支持制作状态、动态属性和图片。
 - 关联：独立多对多表，状态为备选/已采用/不采用；AI 不会创建商品或关联。
-- 并发：灵感与商品都有 `version`，更新冲突返回 409；前端显示差异并允许合并。完整前后快照保存在 `revisions`，恢复会产生新版本。
-- AI：`ai_tasks` 持久化，Worker 原子认领任务；内容版本和字段级人工修改状态防止旧结果覆盖。默认最多请求 4 次（首次 + 3 次重试）。
+- 并发：灵感与商品都有 `version`，更新冲突返回 409；前端显示差异并允许合并。标签维护同样递增版本并记录历史与 SSE 事件。恢复会产生新版本并取消旧整理任务。
+- AI：`ai_tasks` 持久化，Worker 原子认领任务；内容版本和字段级人工修改状态防止旧结果覆盖。完整重新生成也会保留任务启动后的人工作业，未改动的字段不会误锁。总计最多请求 4 次（首次 + 最多 3 次重试）。
 - 认证：Argon2id 密码散列；Session、邀请、重置令牌在数据库中只保存哈希；HttpOnly/SameSite Cookie 与 CSRF 校验。
 - 附件：后端检查真实图片内容、像素、大小、数量和总配额；使用内部 ID 命名，下载必须经过登录。
 - 搜索：参数化 SQLite `LIKE` 子串查询，可靠支持中文短词，覆盖正文、名称、标签、分类、描述和动态属性；可按记录类型、内容类型、商品方向和创建者筛选。
 - 限流：登录失败单独限流，普通 API 按匿名 IP 或登录 Session 限制为每分钟 300 次；SSE 使用独立长连接。
 - 实时同步：`events` 表保存递增事件 ID，SSE 支持 Last-Event-ID、心跳和重连后的全量必要刷新。
+
+本机草稿和待同步队列按账号隔离。登录失效时保留原账号的本机内容，重新登录同一账号后可继续同步；主动退出或撤销当前设备会清理该账号本机内容，并停止旧同步任务。旧版没有账号归属的本机草稿和队列会保留，但不会自动归属或提交给下一账号；升级前应尽量先提交旧版尚未同步的内容。既有人工字段标记保持不变；旧版误锁字段的记录可在确认内容后执行一次“重新生成全部字段”。
 
 主要表：`users`、`sessions`、`invitations`、`password_reset_tokens`、`ideas`、`idea_attributes`、`products`、`product_attributes`、`idea_product_links`、`favorites`、`tags`、`idea_tags`、`attachments`、`revisions`、`ai_tasks`、`events`、`audit_logs`。迁移位于 `internal/database/migrations/`，按版本执行，不会删库重建。
 
@@ -90,7 +92,7 @@ npm run dev
 - `/api/search`、`/api/tags`、`/api/trash`、`/api/export`。
 - `/api/events`：SSE；`/api/system/status`：不泄露密钥的系统状态；`/api/system/backup`：管理员立即备份。
 
-灵感创建接受 `client_id` 作为幂等键。`PATCH` 和删除操作携带 `version`；旧版本返回 HTTP 409，不会静默覆盖。
+灵感创建和附件上传都接受 `client_id` 作为幂等键，重复上传返回同一个附件。`PATCH` 和删除操作携带 `version`；旧版本返回 HTTP 409，不会静默覆盖。前端业务请求携带 `X-User-ID`，防止旧标签页或旧同步任务借用切换后的账号 Cookie 写入数据。
 
 ## 环境变量
 
@@ -131,16 +133,28 @@ CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o bin/com-itemgather ./cmd/co
 
 以下以 `/srv/com-itemgather` 和 `ideas.example.com` 为例，按实际环境调整；不要覆盖其他站点或证书配置。
 
-1. 构建并复制项目，创建专用低权限用户以及可写的数据、附件和备份目录。
-2. 将 `.env.example` 复制为 `/etc/com-itemgather/com-itemgather.env`，修改域名、路径和 AI 配置，权限设为仅管理员与服务账号可读（例如 `chmod 600`）。
-3. 安装并启动后端服务：
+1. 在目标 CPU 架构的构建环境生成产物，将项目复制到 `/srv/com-itemgather`。代码和静态文件应可读，专用服务账号只需写入数据与备份目录。以下命令只创建本站目录；如果同名配置已存在，先备份再更新。
+
+   ```bash
+   getent passwd com-itemgather >/dev/null || sudo useradd --system --user-group \
+     --home-dir /srv/com-itemgather --shell /usr/sbin/nologin com-itemgather
+   sudo install -d -m 700 -o com-itemgather -g com-itemgather \
+     /srv/com-itemgather/data /srv/com-itemgather/data/attachments /srv/com-itemgather/backups
+   sudo install -d -m 750 -o root -g com-itemgather /etc/com-itemgather
+   if ! sudo test -e /etc/com-itemgather/com-itemgather.env; then
+     sudo install -m 640 -o root -g com-itemgather .env.example /etc/com-itemgather/com-itemgather.env
+   fi
+   sudoedit /etc/com-itemgather/com-itemgather.env
+   ```
+
+2. 在环境文件中修改 `APP_PUBLIC_URL`、数据库／附件／备份路径、AI 配置，保持 `COOKIE_SECURE=true`。环境文件使用可由 Bash 加载的赋值语法；含空格的值用引号包住。检查端口：`sudo ss -ltnp 'sport = :8088'`。如果已有监听，为本站选用空闲端口，并同步修改 `APP_LISTEN_ADDR` 和本站 Nginx 代理地址。
+3. 使用统一管理脚本初始化并启动后端。该脚本切换到项目目录、加载上述生产环境，root 执行时再降权到 `com-itemgather`，保证 CLI 与 systemd 使用同一数据库和文件归属。密码通过交互输入，不写入命令行：
 
    ```bash
    sudo cp deploy/systemd/com-itemgather.service /etc/systemd/system/
    sudo systemctl daemon-reload
-   /srv/com-itemgather/bin/com-itemgather migrate
-   ADMIN_PASSWORD='替换为强密码' /srv/com-itemgather/bin/com-itemgather \
-     create-admin -username admin -nickname 管理员
+   sudo /srv/com-itemgather/deploy/scripts/manage.sh migrate
+   sudo /srv/com-itemgather/deploy/scripts/manage.sh create-admin -username admin -nickname 管理员
    sudo systemctl enable --now com-itemgather
    journalctl -u com-itemgather -f
    ```
@@ -158,31 +172,34 @@ CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o bin/com-itemgather ./cmd/co
 
    `nginx -t` 通过后，**只有获得明确授权**才执行 `sudo systemctl reload nginx`。本项目不会自动重启或重载 Nginx。
 
-Nginx 示例包含 Vue History 模式的 `try_files ... /index.html`、静态哈希资源缓存、`/api/` 代理，以及 `/api/events` 的 `proxy_buffering off`、`proxy_cache off` 和 3600 秒超时。Go 同时发送 `X-Accel-Buffering: no` 和 20 秒 SSE 心跳。
+Nginx 示例包含 Vue History 模式的 `try_files ... /index.html`、静态哈希资源缓存、`/api/` 代理，以及 `/api/events` 的 `proxy_buffering off`、`proxy_cache off` 和 3600 秒超时。Go 同时发送 `X-Accel-Buffering: no` 和 20 秒 SSE 心跳，撤销 Session 或停机时关闭相关连接。示例默认不要求 HTTP/2 新指令；如需启用，按配置注释匹配服务器 Nginx 版本。
+
+首次上线检查 HTTPS 登录、邀请注册、双浏览器 SSE、图片访问、AI 失败重试及一次完整备份恢复。`migrate` 会按顺序应用新增迁移，不会删除现有内容。服务账号需拥有既有数据库、WAL、附件及备份目录的读写权限；升级时保留 `/srv/com-itemgather/data` 和 `backups`。
+
+已有服务升级时，先用管理脚本备份，再停止本站后端，替换代码／构建产物并运行迁移，最后启动后端。不要让旧二进制继续操作升级后的数据库。无需因此重启 Nginx 或其他项目。
 
 ## 备份、导出与恢复
 
 设置页可导出不含认证信息的 JSON，包括灵感、商品、属性、标签和关联。完整服务器迁移使用备份归档，其中包含 `database.db` 与 `attachments/`。
 
 ```bash
-./deploy/scripts/backup.sh
-# 或加载环境后执行 bin/com-itemgather backup
+sudo /srv/com-itemgather/deploy/scripts/backup.sh
+# 或 sudo /srv/com-itemgather/deploy/scripts/manage.sh backup
 journalctl -u com-itemgather --since today | grep -E '备份|backup'
 ```
 
-备份使用 SQLite `VACUUM INTO` 生成一致性快照，再打包附件；不会直接复制在线数据库文件。归档同时受保留天数与份数限制。
+备份使用 SQLite `VACUUM INTO` 生成一致性快照；快照与附件复制持有跨进程附件锁，上传、图片删除和永久删除使用同一把锁。复制后释放附件锁再压缩归档，同时核验数据库引用的原件、缩略图及原件大小。自动备份、网页备份和 CLI 备份通过另一把锁串行生成及清理归档。归档同时受保留天数与份数限制，不会直接复制在线数据库文件。
 
 恢复前必须停止后端，并另外保存当前数据。加载部署环境变量后，使用带明确确认的恢复命令：
 
 ```bash
 sudo systemctl stop com-itemgather
-set -a; source /etc/com-itemgather/com-itemgather.env; set +a
-/srv/com-itemgather/bin/com-itemgather restore -archive /path/to/backup.tar.gz -yes
-/srv/com-itemgather/bin/com-itemgather migrate
+sudo /srv/com-itemgather/deploy/scripts/manage.sh restore -archive /path/to/backup.tar.gz -yes
+sudo /srv/com-itemgather/deploy/scripts/manage.sh migrate
 sudo systemctl start com-itemgather
 ```
 
-`restore` 会拒绝不安全路径、非普通文件和缺少有效迁移记录的归档，并在替换前执行 SQLite 完整性检查。被替换的数据库、旧 WAL 文件和附件目录会以 `.pre-restore-唯一ID` 后缀保留；命令会打印这些路径。没有 `-yes` 时不会修改数据。不要删除唯一的恢复前副本。
+`restore` 会拒绝正在运行的服务、不安全路径、非普通文件、缺少有效迁移记录或缺少图片的归档，并在替换前执行 SQLite 完整性及附件检查。被替换的数据库、旧 WAL 文件和附件目录会以 `.pre-restore-唯一ID` 后缀保留；命令会打印这些路径。没有 `-yes` 时不会修改数据。归档需可由服务账号读取，不要删除唯一的恢复前副本。
 
 恢复后登录，检查灵感、商品、关联和图片。附件路径只能由应用内部 ID 组成，不应对外公开 Nginx 静态目录。
 
@@ -199,6 +216,8 @@ bin/com-itemgather restore -archive /path/to/backup.tar.gz -yes
 
 密码参数也支持 `-password`，但环境变量可避免出现在进程列表中。初始管理员只能由 CLI 创建；网页没有公开注册入口。
 
+上面的裸二进制命令用于已正确加载环境的终端。生产环境推荐使用 `sudo /srv/com-itemgather/deploy/scripts/manage.sh 命令`，统一加载环境和执行账号。脚本默认读取 `/etc/com-itemgather/com-itemgather.env`，可以通过 `ENV_FILE` 指定其他配置；开发时可使用 `ENV_FILE=/绝对路径/.env ./deploy/scripts/manage.sh migrate`。
+
 ## 测试
 
 ```bash
@@ -210,13 +229,13 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-AI 集成测试使用本机可控的 OpenAI-compatible 模拟服务，不消耗真实模型额度。浏览器测试启动真实 Go 后端、生产 Vue 静态文件和独立的临时数据库，覆盖持久登录、双人 SSE、商品关联、IndexedDB 草稿、断网重试不重复创建和纯图片投稿；执行前需先完成上述构建。
+AI 集成测试使用本机可控的 OpenAI-compatible 模拟服务，不消耗真实模型额度。浏览器测试启动真实 Go 后端、生产 Vue 静态文件和独立的临时数据库；执行前需先完成上述构建。如果默认测试端口已被占用，可设置 `E2E_BASE_URL=http://127.0.0.1:18098`；代理环境应将 `127.0.0.1,localhost` 加入 `NO_PROXY` 和 `no_proxy`，不要停止其他服务。
 
 本次验收实际通过：
 
-- `go test ./...` 与 `go vet ./...`，包括认证、权限、AI 失败重试、人工字段保护、Worker 重启恢复、并发冲突、历史恢复、SSE、附件、搜索筛选、限流和备份恢复。
-- `./deploy/scripts/build.sh`：Vue 类型检查、生产静态构建和 Go 二进制构建。默认 npm 源在当前网络下超时，使用 `NPM_CONFIG_REGISTRY=https://registry.npmmirror.com` 执行同一脚本后通过。
-- `npm run test:e2e`：Chromium 中 3 个场景全部通过，测试使用真实服务而非 Mock 前端 API。
-- 在隔离的临时数据目录中实际执行 `create-admin`、`backup`、带确认的 `restore`、`migrate` 和 `reset-password`，均成功；缺少 `-yes` 的恢复命令会拒绝修改。
+- `go test -count=1 ./...` 与 `go vet ./...`，包括完整重新生成期间的人工修改保护、普通整理、历史恢复、标签版本和事件、账号请求绑定、SSE 撤销与停机关闭、图片幂等、跨进程互斥、并发备份与图片删除、缺图归档拒绝及原有工作流。
+- `./deploy/scripts/build.sh`：`npm ci` 干净安装、Vue 类型检查、前端生产构建和 Go 静态二进制构建均通过。当前网络使用 `NPM_CONFIG_REGISTRY=https://registry.npmmirror.com`。
+- `npm run test:e2e`：Chromium 中 **10 个场景全部通过**，覆盖持久登录、双人 SSE、商品关联、离线草稿、文字与图片重试幂等、纯图片缩略图、退出／撤销清理、会话过期及跨账号隔离、旧版本机数据隔离、普通重新整理后的页面刷新、详情收藏、失败卡片重试和商品创建者筛选。
+- 在 `/tmp` 隔离目录实际通过管理脚本执行迁移、初始管理员创建、临时服务启动、在线备份、运行中恢复拒绝、停机恢复及密码重置；额外检查了空格路径、环境文件覆盖、当前测试用户的文件归属和缺失配置拒绝。root 降权到专用账号的实际运行仍需在目标服务器验收。
 
 当前开发机没有 `nginx` 命令，因此未在本机执行 `nginx -t`，也未修改、重启或重载服务器上的 Nginx。生产安装独立站点配置后，仍必须先执行文档中的配置验证步骤。
