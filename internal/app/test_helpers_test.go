@@ -193,11 +193,14 @@ func cookieForURL(client *http.Client, rawURL string) []*http.Cookie {
 func testError(t *testing.T, data []byte) string {
 	return decodeTestJSON[map[string]any](t, data)["error"].(map[string]any)["code"].(string)
 }
-func (c *testClient) multipart(t *testing.T, path, ideaID string, data []byte, filename string) (int, []byte) {
+func (c *testClient) multipart(t *testing.T, path, ideaID string, data []byte, filename string, clientID ...string) (int, []byte) {
 	t.Helper()
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	writer.WriteField("idea_id", ideaID)
+	if len(clientID) > 0 {
+		writer.WriteField("client_id", clientID[0])
+	}
 	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
 		t.Fatal(err)

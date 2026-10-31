@@ -609,6 +609,12 @@ func (a *App) permanentDeleteIdea(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	unlock, err := a.lockAttachments(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer unlock()
 	user := currentUser(r)
 	id := r.PathValue("id")
 	item, err := loadIdea(r.Context(), a.db, id, user.ID, true, false)
@@ -625,8 +631,19 @@ func (a *App) permanentDeleteIdea(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	paths := a.attachmentPaths(r.Context(), a.db, "idea", id)
-	tx, _ := a.db.BeginTx(r.Context(), nil)
-	if _, err = tx.ExecContext(r.Context(), "DELETE FROM ideas WHERE id=? AND version=?", id, body.Version); err == nil {
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(r.Context(), "DELETE FROM ideas WHERE id=? AND version=? AND deleted_at IS NOT NULL", id, body.Version)
+	if err == nil {
+		count, _ := result.RowsAffected()
+		if count != 1 {
+			writeError(w, fail(409, "version_conflict", "记录版本已变化"))
+			return
+		}
 		err = a.publish(tx, "idea.deleted_permanently", "idea", id)
 	}
 	if err != nil {

@@ -10,10 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
 	"time"
 
 	"com-itemgather/internal/database"
+	"com-itemgather/internal/filelock"
 	"com-itemgather/internal/security"
 )
 
@@ -22,7 +22,6 @@ type Manager struct {
 	attachments, directory string
 	keep                   int
 	retention              time.Duration
-	mu                     sync.Mutex
 }
 
 func New(db *sql.DB, attachments, directory string, keep int, retentionDays ...int) *Manager {
@@ -33,26 +32,24 @@ func New(db *sql.DB, attachments, directory string, keep int, retentionDays ...i
 	return manager
 }
 func (m *Manager) Create(ctx context.Context) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	if err := os.MkdirAll(m.directory, 0o700); err != nil {
 		return "", err
 	}
+	unlock, err := filelock.Acquire(ctx, filepath.Join(m.directory, ".backup.lock"))
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	temp := filepath.Join(m.directory, ".backup-"+security.ID())
 	if err := os.Mkdir(temp, 0o700); err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(temp)
-	dbPath := filepath.Join(temp, "database.db")
-	if err := database.Backup(ctx, m.db, dbPath); err != nil {
-		return "", err
-	}
-	attachmentsPath := filepath.Join(temp, "attachments")
-	if err := copyTree(m.attachments, attachmentsPath); err != nil {
+	if err := m.snapshot(ctx, temp); err != nil {
 		return "", err
 	}
 	archive := filepath.Join(m.directory, time.Now().UTC().Format("20060102T150405Z")+"-"+security.ID()+".tar.gz")
-	if err := makeArchive(temp, archive); err != nil {
+	if err := makeArchive(ctx, temp, archive); err != nil {
 		os.Remove(archive)
 		return "", err
 	}
@@ -62,11 +59,46 @@ func (m *Manager) Create(ctx context.Context) (string, error) {
 	}
 	return archive, nil
 }
-func copyTree(source, destination string) error {
+
+func (m *Manager) snapshot(ctx context.Context, destination string) error {
+	// Uploads, attachment deletion and permanent record deletion use this same
+	// cross-process lock. Release it before compression to keep recording responsive.
+	unlock, err := filelock.Acquire(ctx, m.attachments+".lock")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	dbPath := filepath.Join(destination, "database.db")
+	if err := database.Backup(ctx, m.db, dbPath); err != nil {
+		return err
+	}
+	attachmentsPath := filepath.Join(destination, "attachments")
+	if err := copyTree(ctx, m.attachments, attachmentsPath); err != nil {
+		return err
+	}
+	return validateSnapshot(ctx, dbPath, attachmentsPath)
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(buffer []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(buffer)
+}
+
+func copyTree(ctx context.Context, source, destination string) error {
 	if _, err := os.Stat(source); os.IsNotExist(err) {
 		return nil
 	}
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -97,14 +129,14 @@ func copyTree(source, destination string) error {
 		if err != nil {
 			return err
 		}
-		if _, err = io.Copy(output, input); err != nil {
+		if _, err = io.Copy(output, contextReader{ctx, input}); err != nil {
 			output.Close()
 			return err
 		}
 		return output.Close()
 	})
 }
-func makeArchive(source, destination string) error {
+func makeArchive(ctx context.Context, source, destination string) error {
 	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
@@ -112,6 +144,9 @@ func makeArchive(source, destination string) error {
 	gzipWriter := gzip.NewWriter(output)
 	tarWriter := tar.NewWriter(gzipWriter)
 	walkErr := filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			return err
 		}
@@ -140,7 +175,7 @@ func makeArchive(source, destination string) error {
 			return err
 		}
 		defer file.Close()
-		_, err = io.Copy(tarWriter, file)
+		_, err = io.Copy(tarWriter, contextReader{ctx, file})
 		return err
 	})
 	if err := tarWriter.Close(); walkErr == nil {

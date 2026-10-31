@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"com-itemgather/internal/filelock"
 	"com-itemgather/internal/security"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -24,6 +26,7 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fail(413, "upload_too_large", "图片超过大小限制或表单无效"))
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	ideaID := r.FormValue("idea_id")
 	productID := r.FormValue("product_id")
 	if (ideaID == "") == (productID == "") {
@@ -35,6 +38,38 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	if productID != "" {
 		kind = "product"
 		parentID = productID
+	}
+	unlock, err := a.lockAttachments(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer unlock()
+	clientID := strings.TrimSpace(r.FormValue("client_id"))
+	if len(clientID) > 100 {
+		writeError(w, fail(422, "validation", "附件提交标识过长"))
+		return
+	}
+	if clientID != "" {
+		var existing Attachment
+		var thumbnail bool
+		err := a.db.QueryRowContext(r.Context(), `SELECT id,COALESCE(idea_id,''),COALESCE(product_id,''),original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE uploader_id=? AND client_id=?`, currentUser(r).ID, clientID).Scan(&existing.ID, &existing.IdeaID, &existing.ProductID, &existing.OriginalName, &existing.MimeType, &existing.Size, &thumbnail, &existing.CreatedAt)
+		if err == nil {
+			if existing.IdeaID != ideaID || existing.ProductID != productID {
+				writeError(w, fail(409, "idempotency_conflict", "附件提交标识已用于另一条记录"))
+				return
+			}
+			existing.URL = "/api/attachments/" + existing.ID
+			if thumbnail {
+				existing.ThumbnailURL = existing.URL + "?thumbnail=1"
+			}
+			writeJSON(w, 200, existing)
+			return
+		}
+		if err != sql.ErrNoRows {
+			writeError(w, err)
+			return
+		}
 	}
 	var count int
 	a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM attachments WHERE "+kind+"_id=?", parentID).Scan(&count)
@@ -122,7 +157,7 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	} else {
 		productValue = productID
 	}
-	_, err = a.db.ExecContext(r.Context(), "INSERT INTO attachments(id,idea_id,product_id,uploader_id,original_name,mime_type,size,file_path,thumbnail_path,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", id, ideaValue, productValue, currentUser(r).ID, originalName, mimeType, len(data), filename, nullString(thumbnail), timestamp)
+	_, err = a.db.ExecContext(r.Context(), "INSERT INTO attachments(id,client_id,idea_id,product_id,uploader_id,original_name,mime_type,size,file_path,thumbnail_path,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", id, nullString(clientID), ideaValue, productValue, currentUser(r).ID, originalName, mimeType, len(data), filename, nullString(thumbnail), timestamp)
 	if err != nil {
 		removeFiles([]string{path, thumbnailPath})
 		writeError(w, err)
@@ -208,9 +243,15 @@ func (a *App) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, name, stat.ModTime(), file)
 }
 func (a *App) deleteAttachment(w http.ResponseWriter, r *http.Request) {
+	unlock, err := a.lockAttachments(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer unlock()
 	var path string
 	var thumbnail sql.NullString
-	err := a.db.QueryRowContext(r.Context(), "SELECT file_path,thumbnail_path FROM attachments WHERE id=?", r.PathValue("id")).Scan(&path, &thumbnail)
+	err = a.db.QueryRowContext(r.Context(), "SELECT file_path,thumbnail_path FROM attachments WHERE id=?", r.PathValue("id")).Scan(&path, &thumbnail)
 	if err != nil {
 		writeError(w, ensureNoRows(err))
 		return
@@ -232,6 +273,10 @@ func (a *App) deleteAttachment(w http.ResponseWriter, r *http.Request) {
 	removeFiles(paths)
 	a.emit("attachment.changed", "attachment", "")
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (a *App) lockAttachments(ctx context.Context) (func(), error) {
+	return filelock.Acquire(ctx, a.cfg.AttachmentDir+".lock")
 }
 func (a *App) attachmentPaths(ctx context.Context, q querier, kind, id string) []string {
 	rows, err := q.QueryContext(ctx, "SELECT file_path,COALESCE(thumbnail_path,'') FROM attachments WHERE "+kind+"_id=?", id)

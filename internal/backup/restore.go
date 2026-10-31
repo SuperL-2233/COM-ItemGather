@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"com-itemgather/internal/filelock"
 	"com-itemgather/internal/security"
 )
 
@@ -24,6 +25,16 @@ func Restore(ctx context.Context, archivePath, databasePath, attachmentsPath str
 	if databasePath == "" || databasePath == ":memory:" || attachmentsPath == "" {
 		return nil, fmt.Errorf("database and attachment paths must be persistent files and directories")
 	}
+	serviceUnlock, err := filelock.TryAcquire(ctx, databasePath+".running.lock")
+	if err != nil {
+		return nil, fmt.Errorf("restore requires a stopped backend: %w", err)
+	}
+	defer serviceUnlock()
+	attachmentsUnlock, err := filelock.Acquire(ctx, attachmentsPath+".lock")
+	if err != nil {
+		return nil, err
+	}
+	defer attachmentsUnlock()
 	databaseDir := filepath.Dir(databasePath)
 	if err := os.MkdirAll(databaseDir, 0o700); err != nil {
 		return nil, err
@@ -37,7 +48,7 @@ func Restore(ctx context.Context, archivePath, databasePath, attachmentsPath str
 	if err := extractArchive(archivePath, stage); err != nil {
 		return nil, err
 	}
-	if err := validateSnapshot(ctx, filepath.Join(stage, "database.db")); err != nil {
+	if err := validateSnapshot(ctx, filepath.Join(stage, "database.db"), filepath.Join(stage, "attachments")); err != nil {
 		return nil, err
 	}
 	attachmentsParent := filepath.Dir(attachmentsPath)
@@ -45,7 +56,7 @@ func Restore(ctx context.Context, archivePath, databasePath, attachmentsPath str
 		return nil, err
 	}
 	newAttachments := filepath.Join(attachmentsParent, ".restore-"+id)
-	if err := copyTree(filepath.Join(stage, "attachments"), newAttachments); err != nil {
+	if err := copyTree(ctx, filepath.Join(stage, "attachments"), newAttachments); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(newAttachments, 0o700); err != nil {
@@ -154,7 +165,7 @@ func extractArchive(archivePath, destination string) error {
 	return nil
 }
 
-func validateSnapshot(ctx context.Context, filename string) error {
+func validateSnapshot(ctx context.Context, filename, attachments string) error {
 	db, err := sql.Open("sqlite", "file:"+filename+"?mode=ro")
 	if err != nil {
 		return err
@@ -171,5 +182,32 @@ func validateSnapshot(ctx context.Context, filename string) error {
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&migrations); err != nil || migrations < 1 {
 		return fmt.Errorf("backup is not a migrated COM-ItemGather database")
 	}
-	return nil
+	rows, err := db.QueryContext(ctx, "SELECT file_path,COALESCE(thumbnail_path,''),size FROM attachments")
+	if err != nil {
+		return fmt.Errorf("read snapshot attachment references: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var original, thumbnail string
+		var size int64
+		if err := rows.Scan(&original, &thumbnail, &size); err != nil {
+			return err
+		}
+		for index, name := range []string{original, thumbnail} {
+			if index == 1 && name == "" {
+				continue
+			}
+			if name == "" || name == "." || name == ".." || filepath.Base(name) != name {
+				return fmt.Errorf("invalid snapshot attachment path %q", name)
+			}
+			info, err := os.Lstat(filepath.Join(attachments, name))
+			if err != nil || !info.Mode().IsRegular() {
+				return fmt.Errorf("snapshot attachment missing or invalid: %s", name)
+			}
+			if name == original && info.Size() != size {
+				return fmt.Errorf("snapshot attachment size mismatch: %s", name)
+			}
+		}
+	}
+	return rows.Err()
 }

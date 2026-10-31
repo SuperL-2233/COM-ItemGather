@@ -16,6 +16,7 @@ import (
 	"com-itemgather/internal/backup"
 	"com-itemgather/internal/config"
 	"com-itemgather/internal/database"
+	"com-itemgather/internal/filelock"
 	"com-itemgather/internal/security"
 )
 
@@ -82,9 +83,14 @@ func withDB(cfg config.Config, action func(*sql.DB) error) error {
 	return action(db)
 }
 func serve(cfg config.Config) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	unlock, err := filelock.TryAcquire(ctx, cfg.DatabasePath+".running.lock")
+	if err != nil {
+		return fmt.Errorf("database is in use by another server or restore: %w", err)
+	}
+	defer unlock()
 	return withDB(cfg, func(db *sql.DB) error {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
 		if err := database.Migrate(ctx, db); err != nil {
 			return err
 		}
@@ -96,9 +102,11 @@ func serve(cfg config.Config) error {
 			ticker := time.NewTicker(cfg.BackupInterval)
 			defer ticker.Stop()
 			for {
-				if _, err := manager.Create(ctx); err != nil && ctx.Err() == nil {
-					logger.Printf("自动备份失败: %v", err)
-				} else {
+				if _, err := manager.Create(ctx); err != nil {
+					if ctx.Err() == nil {
+						logger.Printf("自动备份失败: %v", err)
+					}
+				} else if ctx.Err() == nil {
 					logger.Printf("数据库与附件备份完成")
 				}
 				select {
