@@ -62,7 +62,9 @@ func newTestEnvironment(t *testing.T, handler http.HandlerFunc) *testEnvironment
 	server := httptest.NewServer(application)
 	application.cfg.PublicURL = server.URL
 	ctx, cancel := context.WithCancel(context.Background())
-	application.Start(ctx)
+	if err := application.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
 	environment := &testEnvironment{app: application, db: db, server: server, aiServer: aiServer, cancel: cancel}
 	t.Cleanup(func() { cancel(); server.Close(); aiServer.Close(); db.Close() })
 	return environment

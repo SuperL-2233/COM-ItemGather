@@ -96,7 +96,9 @@ func serve(cfg config.Config) error {
 		}
 		logger := log.New(os.Stdout, "com-itemgather ", log.LstdFlags)
 		application := app.New(db, cfg, logger)
-		application.Start(ctx)
+		if err := application.Start(ctx); err != nil {
+			return fmt.Errorf("recover AI tasks: %w", err)
+		}
 		manager := backup.New(db, cfg.AttachmentDir, cfg.BackupDir, cfg.BackupKeep, cfg.BackupRetentionDays)
 		go func() {
 			ticker := time.NewTicker(cfg.BackupInterval)

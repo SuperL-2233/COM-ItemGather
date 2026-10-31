@@ -69,8 +69,8 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mux.ServeHTTP(w, r)
 }
 
-func (a *App) Start(ctx context.Context) { a.runContext = ctx; a.ai.Start(ctx) }
-func (a *App) DB() *sql.DB               { return a.db }
+func (a *App) Start(ctx context.Context) error { a.runContext = ctx; return a.ai.Start(ctx) }
+func (a *App) DB() *sql.DB                     { return a.db }
 
 func (a *App) routes() {
 	handle := func(pattern string, handler http.HandlerFunc, auth bool) {

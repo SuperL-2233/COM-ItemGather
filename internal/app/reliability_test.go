@@ -14,7 +14,11 @@ func TestReliabilityFullRegenerationPreservesEditsAfterStart(t *testing.T) {
 	env := newTestEnvironment(t, func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) > 1 {
 			started <- struct{}{}
-			<-release
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
 		}
 		validAIHandler(w, r)
 	})
@@ -28,6 +32,10 @@ func TestReliabilityFullRegenerationPreservesEditsAfterStart(t *testing.T) {
 	status, data = client.request(t, "POST", "/api/ideas/"+idea.ID+"/ai", map[string]string{"mode": "full"})
 	assertStatus(t, status, 202, data)
 	<-started
+	var attempts int
+	if err := env.db.QueryRow("SELECT attempts FROM ai_tasks WHERE idea_id=? AND status='running'", idea.ID).Scan(&attempts); err != nil || attempts != 1 {
+		t.Fatalf("request attempt must be persisted before model completion: %d %v", attempts, err)
+	}
 	status, data = client.request(t, "PATCH", "/api/ideas/"+idea.ID, map[string]any{"version": idea.Version, "display_title": "任务启动之后才写的人工标题"})
 	assertStatus(t, status, 200, data)
 	release <- struct{}{}

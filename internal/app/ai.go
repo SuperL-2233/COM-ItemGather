@@ -203,12 +203,33 @@ func (w *AIWorker) Wake() {
 	default:
 	}
 }
-func (w *AIWorker) Start(ctx context.Context) {
-	w.a.db.ExecContext(context.Background(), "UPDATE ai_tasks SET status='pending',leased_until=NULL,updated_at=? WHERE status='running'", now())
-	w.a.db.ExecContext(context.Background(), "UPDATE ideas SET ai_status='pending' WHERE ai_status='running'")
+func (w *AIWorker) Start(ctx context.Context) error {
+	tx, err := w.a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	timestamp := now()
+	statements := []string{
+		`UPDATE ai_tasks SET status='cancelled',leased_until=NULL,updated_at=? WHERE status IN ('pending','running') AND NOT EXISTS(SELECT 1 FROM ideas i WHERE i.id=ai_tasks.idea_id AND i.content_version=ai_tasks.source_content_version)`,
+		`UPDATE ideas SET ai_status='failed',ai_error='整理已达到请求次数上限，请手动重新整理',updated_at=? WHERE EXISTS(SELECT 1 FROM ai_tasks t WHERE t.idea_id=ideas.id AND t.source_content_version=ideas.content_version AND t.status IN ('pending','running') AND t.attempts>=t.max_attempts)`,
+		`UPDATE ai_tasks SET status='failed',leased_until=NULL,last_error='整理已达到请求次数上限，请手动重新整理',updated_at=? WHERE status IN ('pending','running') AND attempts>=max_attempts`,
+		`UPDATE ai_tasks SET status='pending',leased_until=NULL,updated_at=? WHERE status='running'`,
+		`UPDATE ideas SET ai_status='pending',updated_at=? WHERE ai_status='running' AND EXISTS(SELECT 1 FROM ai_tasks t WHERE t.idea_id=ideas.id AND t.status='pending' AND t.source_content_version=ideas.content_version)`,
+		`UPDATE ideas SET ai_status='idle',ai_error='',updated_at=? WHERE ai_status IN ('pending','running') AND NOT EXISTS(SELECT 1 FROM ai_tasks t WHERE t.idea_id=ideas.id AND t.status IN ('pending','running') AND t.source_content_version=ideas.content_version)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement, timestamp); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 	for i := 0; i < w.a.cfg.AIWorkers; i++ {
 		go w.run(ctx)
 	}
+	return nil
 }
 func (w *AIWorker) run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
@@ -238,7 +259,7 @@ func (w *AIWorker) run(ctx context.Context) {
 func (w *AIWorker) claim(ctx context.Context) (AITask, bool, error) {
 	var task AITask
 	lease := time.Now().UTC().Add(w.a.cfg.AITimeout + 30*time.Second).Format(time.RFC3339Nano)
-	err := w.a.db.QueryRowContext(ctx, `UPDATE ai_tasks SET status='running',leased_until=?,updated_at=? WHERE id=(SELECT id FROM ai_tasks WHERE status='pending' AND next_attempt_at<=? ORDER BY created_at LIMIT 1) AND status='pending' RETURNING id,idea_id,source_content,source_content_version,source_version,mode,status,attempts,max_attempts,COALESCE(last_error,'')`, lease, now(), now()).Scan(&task.ID, &task.IdeaID, &task.SourceContent, &task.SourceContentVersion, &task.SourceVersion, &task.Mode, &task.Status, &task.Attempts, &task.MaxAttempts, &task.LastError)
+	err := w.a.db.QueryRowContext(ctx, `UPDATE ai_tasks SET status='running',attempts=attempts+1,leased_until=?,updated_at=? WHERE id=(SELECT id FROM ai_tasks WHERE status='pending' AND attempts<max_attempts AND next_attempt_at<=? ORDER BY created_at LIMIT 1) AND status='pending' RETURNING id,idea_id,source_content,source_content_version,source_version,mode,status,attempts,max_attempts,COALESCE(last_error,'')`, lease, now(), now()).Scan(&task.ID, &task.IdeaID, &task.SourceContent, &task.SourceContentVersion, &task.SourceVersion, &task.Mode, &task.Status, &task.Attempts, &task.MaxAttempts, &task.LastError)
 	if err == sql.ErrNoRows {
 		return task, false, nil
 	}
@@ -258,7 +279,7 @@ func (a *App) enqueueAITx(ctx context.Context, tx *sql.Tx, ideaID, content strin
 
 func (w *AIWorker) process(ctx context.Context, task AITask) {
 	result, err := w.a.organize(ctx, task.SourceContent)
-	attempt := task.Attempts + 1
+	attempt := task.Attempts
 	if err != nil {
 		var callErr *aiCallError
 		retryable := errors.As(err, &callErr) && callErr.retryable
