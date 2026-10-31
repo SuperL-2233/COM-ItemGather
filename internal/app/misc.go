@@ -10,55 +10,119 @@ import (
 )
 
 func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if query == "" {
-		writeJSON(w, 200, map[string]any{"ideas": []Idea{}, "products": []Product{}})
+	parameters := r.URL.Query()
+	query := strings.TrimSpace(parameters.Get("q"))
+	kind := parameters.Get("kind")
+	ideaType := clean(parameters.Get("idea_type"), 80)
+	direction := clean(parameters.Get("direction"), 80)
+	author := clean(parameters.Get("author"), 100)
+	if kind == "" {
+		kind = "all"
+	}
+	if len([]rune(query)) > 200 || (kind != "all" && kind != "ideas" && kind != "products") {
+		writeError(w, fail(422, "validation", "搜索条件无效"))
 		return
 	}
-	if len([]rune(query)) > 200 {
-		writeError(w, fail(422, "validation", "搜索词过长"))
+	creatorRows, err := a.db.QueryContext(r.Context(), "SELECT id,nickname FROM users WHERE status='active' ORDER BY nickname COLLATE NOCASE")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	creators := []map[string]string{}
+	for creatorRows.Next() {
+		var id, nickname string
+		if err = creatorRows.Scan(&id, &nickname); err != nil {
+			creatorRows.Close()
+			writeError(w, err)
+			return
+		}
+		creators = append(creators, map[string]string{"id": id, "nickname": nickname})
+	}
+	creatorRows.Close()
+	ideas := []Idea{}
+	products := []Product{}
+	if query == "" && ideaType == "" && direction == "" && author == "" {
+		writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "creators": creators})
 		return
 	}
 	like := "%" + escapeLike(query) + "%"
-	ideaRows, err := a.db.QueryContext(r.Context(), `SELECT i.id FROM ideas i WHERE i.deleted_at IS NULL AND (i.original_content LIKE ? ESCAPE '\' OR i.content LIKE ? ESCAPE '\' OR i.display_title LIKE ? ESCAPE '\' OR i.summary LIKE ? ESCAPE '\' OR i.name_candidates_json LIKE ? ESCAPE '\' OR i.tags_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM idea_attributes a WHERE a.idea_id=i.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY i.updated_at DESC LIMIT 50`, like, like, like, like, like, like, like, like)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	ideaIDs := []string{}
-	for ideaRows.Next() {
-		var id string
-		ideaRows.Scan(&id)
-		ideaIDs = append(ideaIDs, id)
-	}
-	ideaRows.Close()
-	ideas := []Idea{}
-	for _, id := range ideaIDs {
-		item, loadErr := loadIdea(r.Context(), a.db, id, currentUser(r).ID, false, false)
-		if loadErr == nil {
+	if kind != "products" {
+		sql := `SELECT i.id FROM ideas i WHERE i.deleted_at IS NULL AND (?='' OR i.original_content LIKE ? ESCAPE '\' OR i.content LIKE ? ESCAPE '\' OR i.display_title LIKE ? ESCAPE '\' OR i.summary LIKE ? ESCAPE '\' OR i.name_candidates_json LIKE ? ESCAPE '\' OR i.tags_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM idea_attributes a WHERE a.idea_id=i.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\')))`
+		arguments := []any{query, like, like, like, like, like, like, like, like}
+		if ideaType != "" {
+			sql += " AND EXISTS(SELECT 1 FROM json_each(i.idea_types_json) WHERE json_each.value=?)"
+			arguments = append(arguments, ideaType)
+		}
+		if direction != "" {
+			sql += " AND EXISTS(SELECT 1 FROM json_each(i.product_directions_json) WHERE json_each.value=?)"
+			arguments = append(arguments, direction)
+		}
+		if author != "" {
+			sql += " AND i.author_id=?"
+			arguments = append(arguments, author)
+		}
+		ideaRows, queryErr := a.db.QueryContext(r.Context(), sql+" ORDER BY i.updated_at DESC LIMIT 50", arguments...)
+		if queryErr != nil {
+			writeError(w, queryErr)
+			return
+		}
+		ideaIDs := []string{}
+		for ideaRows.Next() {
+			var id string
+			if err = ideaRows.Scan(&id); err != nil {
+				ideaRows.Close()
+				writeError(w, err)
+				return
+			}
+			ideaIDs = append(ideaIDs, id)
+		}
+		if err = ideaRows.Err(); err != nil {
+			ideaRows.Close()
+			writeError(w, err)
+			return
+		}
+		ideaRows.Close()
+		for _, id := range ideaIDs {
+			item, loadErr := loadIdea(r.Context(), a.db, id, currentUser(r).ID, false, false)
+			if loadErr != nil {
+				writeError(w, loadErr)
+				return
+			}
 			ideas = append(ideas, item)
 		}
 	}
-	productRows, err := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (p.internal_name LIKE ? ESCAPE '\' OR p.final_brand_name LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, like, like, like, like, like, like)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	productIDs := []string{}
-	for productRows.Next() {
-		var id string
-		productRows.Scan(&id)
-		productIDs = append(productIDs, id)
-	}
-	productRows.Close()
-	products := []Product{}
-	for _, id := range productIDs {
-		item, loadErr := loadProduct(r.Context(), a.db, id, false, false)
-		if loadErr == nil {
+	if kind != "ideas" && ideaType == "" && direction == "" && author == "" {
+		productRows, queryErr := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (?='' OR p.internal_name LIKE ? ESCAPE '\' OR p.final_brand_name LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, query, like, like, like, like, like, like)
+		if queryErr != nil {
+			writeError(w, queryErr)
+			return
+		}
+		productIDs := []string{}
+		for productRows.Next() {
+			var id string
+			if err = productRows.Scan(&id); err != nil {
+				productRows.Close()
+				writeError(w, err)
+				return
+			}
+			productIDs = append(productIDs, id)
+		}
+		if err = productRows.Err(); err != nil {
+			productRows.Close()
+			writeError(w, err)
+			return
+		}
+		productRows.Close()
+		for _, id := range productIDs {
+			item, loadErr := loadProduct(r.Context(), a.db, id, false, false)
+			if loadErr != nil {
+				writeError(w, loadErr)
+				return
+			}
 			products = append(products, item)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products})
+	writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "creators": creators})
 }
 
 func (a *App) listTrash(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +323,7 @@ func (a *App) manualBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	path, err := backup.New(a.db, a.cfg.AttachmentDir, a.cfg.BackupDir, a.cfg.BackupKeep).Create(r.Context())
+	path, err := backup.New(a.db, a.cfg.AttachmentDir, a.cfg.BackupDir, a.cfg.BackupKeep, a.cfg.BackupRetentionDays).Create(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return

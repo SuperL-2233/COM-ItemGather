@@ -28,7 +28,6 @@ func (a *App) restoreIdeaRevision(w http.ResponseWriter, r *http.Request, versio
 		writeError(w, err)
 		return
 	}
-	item.Content = data.Content
 	item.DisplayTitle = data.DisplayTitle
 	item.Summary = data.Summary
 	item.Notes = data.Notes

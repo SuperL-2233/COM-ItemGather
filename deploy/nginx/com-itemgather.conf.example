@@ -1,0 +1,75 @@
+# 独立站点示例：请先替换域名、证书路径和部署目录。
+# 复用服务器现有 Nginx 与证书管理方式，不要执行 certbot 或覆盖其他站点。
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ideas.example.com;
+
+    ssl_certificate /etc/nginx/ssl/ideas.example.com/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/ideas.example.com/privkey.pem;
+
+    root /srv/com-itemgather/web/dist;
+    index index.html;
+    charset utf-8;
+    client_max_body_size 12m;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy same-origin always;
+
+    location = /api/events {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        gzip off;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 75s;
+    }
+
+    location = /sw.js {
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}
+
+# 如现有 Nginx 尚未为此域名配置 HTTP 跳转，可单独启用以下 server。
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ideas.example.com;
+    return 301 https://$host$request_uri;
+}

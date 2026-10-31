@@ -22,13 +22,14 @@ const userKey contextKey = "user"
 const sessionKey contextKey = "session"
 
 type App struct {
-	db      *sql.DB
-	cfg     config.Config
-	log     *log.Logger
-	mux     *http.ServeMux
-	hub     *Hub
-	ai      *AIWorker
-	limiter *loginLimiter
+	db         *sql.DB
+	cfg        config.Config
+	log        *log.Logger
+	mux        *http.ServeMux
+	hub        *Hub
+	ai         *AIWorker
+	limiter    *loginLimiter
+	apiLimiter *requestLimiter
 }
 
 type APIError struct {
@@ -47,7 +48,7 @@ func New(db *sql.DB, cfg config.Config, logger *log.Logger) *App {
 	if logger == nil {
 		logger = log.New(os.Stderr, "", log.LstdFlags)
 	}
-	a := &App{db: db, cfg: cfg, log: logger, mux: http.NewServeMux(), hub: NewHub(), limiter: newLoginLimiter()}
+	a := &App{db: db, cfg: cfg, log: logger, mux: http.NewServeMux(), hub: NewHub(), limiter: newLoginLimiter(), apiLimiter: newRequestLimiter(300)}
 	a.routes()
 	a.ai = NewAIWorker(a)
 	return a
@@ -60,6 +61,9 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		w.Header().Set("Cache-Control", "no-store")
+	}
+	if !a.rateLimit(w, r) {
+		return
 	}
 	a.mux.ServeHTTP(w, r)
 }
@@ -193,6 +197,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 func writeError(w http.ResponseWriter, err error) {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
+		log.Printf("internal API error: %v", err)
 		apiErr = fail(500, "internal_error", "服务器处理失败")
 	}
 	body := map[string]any{"code": apiErr.Code, "message": apiErr.Message}

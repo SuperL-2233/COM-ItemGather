@@ -73,7 +73,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	var user User
 	var passwordHash string
-	err := a.db.QueryRowContext(r.Context(), "SELECT id,username,nickname,password_hash,role,status,created_at FROM users WHERE username=? COLLATE NOCASE", clean(body.Username, 100)).Scan(&user.ID, &user.Username, &passwordHash, &user.Role, &user.Status, &user.CreatedAt)
+	err := a.db.QueryRowContext(r.Context(), "SELECT id,username,nickname,password_hash,role,status,created_at FROM users WHERE username=? COLLATE NOCASE", clean(body.Username, 100)).Scan(&user.ID, &user.Username, &user.Nickname, &passwordHash, &user.Role, &user.Status, &user.CreatedAt)
 	if err != nil || user.Status != "active" || !security.VerifyPassword(body.Password, passwordHash) {
 		a.limiter.failed(key)
 		writeError(w, fail(401, "invalid_credentials", "用户名或密码错误"))

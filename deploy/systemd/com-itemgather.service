@@ -1,0 +1,26 @@
+[Unit]
+Description=COM ItemGather Go backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=com-itemgather
+Group=com-itemgather
+WorkingDirectory=/srv/com-itemgather
+EnvironmentFile=/etc/com-itemgather/com-itemgather.env
+ExecStart=/srv/com-itemgather/bin/com-itemgather serve
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=20s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/com-itemgather/data /srv/com-itemgather/backups
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

@@ -5,13 +5,11 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,11 +21,16 @@ type Manager struct {
 	db                     *sql.DB
 	attachments, directory string
 	keep                   int
+	retention              time.Duration
 	mu                     sync.Mutex
 }
 
-func New(db *sql.DB, attachments, directory string, keep int) *Manager {
-	return &Manager{db: db, attachments: attachments, directory: directory, keep: keep}
+func New(db *sql.DB, attachments, directory string, keep int, retentionDays ...int) *Manager {
+	manager := &Manager{db: db, attachments: attachments, directory: directory, keep: keep}
+	if len(retentionDays) > 0 && retentionDays[0] > 0 {
+		manager.retention = time.Duration(retentionDays[0]) * 24 * time.Hour
+	}
+	return manager
 }
 func (m *Manager) Create(ctx context.Context) (string, error) {
 	m.mu.Lock()
@@ -156,21 +159,35 @@ func (m *Manager) clean() error {
 	if err != nil {
 		return err
 	}
+	if m.retention > 0 {
+		cutoff := time.Now().Add(-m.retention)
+		kept := entries[:0]
+		for _, path := range entries {
+			info, statErr := os.Stat(path)
+			if statErr != nil {
+				return statErr
+			}
+			if info.ModTime().Before(cutoff) {
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+			} else {
+				kept = append(kept, path)
+			}
+		}
+		entries = kept
+	}
 	sort.Slice(entries, func(i, j int) bool {
 		left, _ := os.Stat(entries[i])
 		right, _ := os.Stat(entries[j])
 		return left.ModTime().After(right.ModTime())
 	})
-	if len(entries) <= m.keep {
-		return nil
-	}
-	for _, path := range entries[m.keep:] {
-		if err := os.Remove(path); err != nil {
-			return err
+	if m.keep > 0 && len(entries) > m.keep {
+		for _, path := range entries[m.keep:] {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
-}
-func RestoreInstructions() string {
-	return strings.TrimSpace(fmt.Sprintf("Stop the service, extract the backup into an empty directory, replace the configured SQLite database and attachment directory, then run the migrate command before restarting."))
 }

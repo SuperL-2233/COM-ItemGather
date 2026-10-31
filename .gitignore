@@ -6,6 +6,7 @@ web/node_modules/
 # Builds
 bin/
 web/dist/
+*.tsbuildinfo
 
 # Runtime data
 data/

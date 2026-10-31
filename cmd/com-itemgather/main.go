@@ -49,12 +49,14 @@ func run() error {
 			if err := database.Migrate(context.Background(), db); err != nil {
 				return err
 			}
-			path, err := backup.New(db, cfg.AttachmentDir, cfg.BackupDir, cfg.BackupKeep).Create(context.Background())
+			path, err := backup.New(db, cfg.AttachmentDir, cfg.BackupDir, cfg.BackupKeep, cfg.BackupRetentionDays).Create(context.Background())
 			if err == nil {
 				fmt.Println(path)
 			}
 			return err
 		})
+	case "restore":
+		return restoreBackup(cfg, os.Args[2:])
 	default:
 		usage()
 		return fmt.Errorf("未知命令 %s", command)
@@ -68,7 +70,8 @@ func usage() {
   com-itemgather create-admin -username NAME -nickname NAME [-password PASSWORD]
   com-itemgather reset-password -username NAME [-password PASSWORD]
   com-itemgather backup
-密码也可通过 ADMIN_PASSWORD 或 RESET_PASSWORD 环境变量传入。`)
+  com-itemgather restore -archive BACKUP.tar.gz -yes
+恢复前必须停止服务。恢复会保留被替换的数据；密码也可通过 ADMIN_PASSWORD 或 RESET_PASSWORD 环境变量传入。`)
 }
 func withDB(cfg config.Config, action func(*sql.DB) error) error {
 	db, err := database.Open(cfg.DatabasePath)
@@ -88,7 +91,7 @@ func serve(cfg config.Config) error {
 		logger := log.New(os.Stdout, "com-itemgather ", log.LstdFlags)
 		application := app.New(db, cfg, logger)
 		application.Start(ctx)
-		manager := backup.New(db, cfg.AttachmentDir, cfg.BackupDir, cfg.BackupKeep)
+		manager := backup.New(db, cfg.AttachmentDir, cfg.BackupDir, cfg.BackupKeep, cfg.BackupRetentionDays)
 		go func() {
 			ticker := time.NewTicker(cfg.BackupInterval)
 			defer ticker.Stop()
@@ -124,6 +127,28 @@ func serve(cfg config.Config) error {
 		return nil
 	})
 }
+func restoreBackup(cfg config.Config, args []string) error {
+	flags := flag.NewFlagSet("restore", flag.ContinueOnError)
+	archive := flags.String("archive", "", "备份 tar.gz 文件")
+	confirmed := flags.Bool("yes", false, "确认替换配置中的数据库与附件")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *archive == "" || !*confirmed {
+		return fmt.Errorf("请先停止服务，再使用 restore -archive BACKUP.tar.gz -yes 明确确认恢复")
+	}
+	preserved, err := backup.Restore(context.Background(), *archive, cfg.DatabasePath, cfg.AttachmentDir)
+	if err != nil {
+		return err
+	}
+	fmt.Println("数据库与附件已恢复。被替换的原文件保留在：")
+	for _, filename := range preserved {
+		fmt.Println(filename)
+	}
+	fmt.Println("请检查恢复结果，再启动服务。")
+	return nil
+}
+
 func createAdmin(cfg config.Config, args []string) error {
 	flags := flag.NewFlagSet("create-admin", flag.ContinueOnError)
 	username := flags.String("username", "", "用户名")
