@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -91,8 +94,8 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 			ideas = append(ideas, item)
 		}
 	}
-	if kind != "ideas" && ideaType == "" && direction == "" && author == "" {
-		productRows, queryErr := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (?='' OR p.internal_name LIKE ? ESCAPE '\' OR p.final_brand_name LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, query, like, like, like, like, like, like)
+	if kind != "ideas" && ideaType == "" && direction == "" {
+		productRows, queryErr := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (?='' OR p.created_by=?) AND (?='' OR p.internal_name LIKE ? ESCAPE '\' OR p.final_brand_name LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, author, author, query, like, like, like, like, like, like)
 		if queryErr != nil {
 			writeError(w, queryErr)
 			return
@@ -197,67 +200,117 @@ func (a *App) renameTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if _, err := a.db.ExecContext(r.Context(), "UPDATE tags SET name=? WHERE id=?", name, id); err != nil {
-		writeError(w, fail(409, "tag_exists", "标签名已存在"))
-		return
-	}
-	a.refreshTagJSON(id)
-	a.hub.Notify()
-	writeJSON(w, 200, map[string]any{"ok": true})
+	a.changeTag(w, r, id, &name)
 }
 func (a *App) deleteTag(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	rows, err := a.db.QueryContext(r.Context(), "SELECT idea_id FROM idea_tags WHERE tag_id=?", id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	ideaIDs := []string{}
-	for rows.Next() {
-		var ideaID string
-		rows.Scan(&ideaID)
-		ideaIDs = append(ideaIDs, ideaID)
-	}
-	rows.Close()
-	if _, err := a.db.ExecContext(r.Context(), "DELETE FROM tags WHERE id=?", id); err != nil {
-		writeError(w, err)
-		return
-	}
-	for _, ideaID := range ideaIDs {
-		a.refreshIdeaTags(ideaID)
-	}
-	a.hub.Notify()
-	writeJSON(w, 200, map[string]any{"ok": true})
+	a.changeTag(w, r, r.PathValue("id"), nil)
 }
-func (a *App) refreshTagJSON(tagID string) {
-	rows, err := a.db.Query("SELECT idea_id FROM idea_tags WHERE tag_id=?", tagID)
+
+func (a *App) changeTag(w http.ResponseWriter, r *http.Request, id string, name *string) {
+	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	var previous string
+	if err := tx.QueryRowContext(r.Context(), "SELECT name FROM tags WHERE id=?", id).Scan(&previous); err != nil {
+		writeError(w, ensureNoRows(err))
+		return
+	}
+	if name != nil && previous == *name {
+		writeJSON(w, 200, map[string]any{"ok": true})
+		return
+	}
+	rows, err := tx.QueryContext(r.Context(), "SELECT idea_id FROM idea_tags WHERE tag_id=? ORDER BY idea_id", id)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
 	ids := []string{}
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err = rows.Scan(&id); err != nil {
+			break
+		}
 		ids = append(ids, id)
 	}
-	rows.Close()
-	for _, ideaID := range ids {
-		a.refreshIdeaTags(ideaID)
+	if err == nil {
+		err = rows.Err()
 	}
-}
-func (a *App) refreshIdeaTags(ideaID string) {
-	tagRows, err := a.db.Query("SELECT t.name FROM idea_tags it JOIN tags t ON t.id=it.tag_id WHERE it.idea_id=? ORDER BY t.name COLLATE NOCASE", ideaID)
+	rows.Close()
 	if err != nil {
+		writeError(w, err)
 		return
 	}
+	if name == nil {
+		_, err = tx.ExecContext(r.Context(), "DELETE FROM tags WHERE id=?", id)
+	} else {
+		var exists int
+		if err = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM tags WHERE name=? COLLATE NOCASE AND id<>?", *name, id).Scan(&exists); err == nil && exists > 0 {
+			writeError(w, fail(409, "tag_exists", "标签名已存在"))
+			return
+		}
+		if err == nil {
+			_, err = tx.ExecContext(r.Context(), "UPDATE tags SET name=? WHERE id=?", *name, id)
+		}
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	userID := currentUser(r).ID
+	for _, ideaID := range ids {
+		if err := a.updateIdeaTagsTx(r.Context(), tx, ideaID, userID); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		writeError(w, err)
+		return
+	}
+	a.afterCommit()
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (a *App) updateIdeaTagsTx(ctx context.Context, tx *sql.Tx, ideaID, userID string) error {
+	item, err := loadIdea(ctx, tx, ideaID, userID, true, false)
+	if err != nil {
+		return err
+	}
+	before := ideaSnapshot(item)
+	tagRows, err := tx.QueryContext(ctx, "SELECT t.name FROM idea_tags it JOIN tags t ON t.id=it.tag_id WHERE it.idea_id=? ORDER BY t.name COLLATE NOCASE", ideaID)
+	if err != nil {
+		return err
+	}
+	defer tagRows.Close()
 	tags := []string{}
 	for tagRows.Next() {
 		var name string
-		tagRows.Scan(&name)
+		if err := tagRows.Scan(&name); err != nil {
+			return err
+		}
 		tags = append(tags, name)
 	}
+	if err := tagRows.Err(); err != nil {
+		return err
+	}
 	tagRows.Close()
-	a.db.Exec("UPDATE ideas SET tags_json=? WHERE id=?", encodeJSON(tags), ideaID)
+	item.Tags = tags
+	if !slices.Contains(item.ManualFields, "tags") {
+		item.ManualFields = append(item.ManualFields, "tags")
+	}
+	slices.Sort(item.ManualFields)
+	item.Version++
+	item.UpdatedAt = now()
+	if _, err := tx.ExecContext(ctx, "UPDATE ideas SET tags_json=?,manual_fields_json=?,version=?,updated_at=? WHERE id=?", encodeJSON(item.Tags), encodeJSON(item.ManualFields), item.Version, item.UpdatedAt, ideaID); err != nil {
+		return err
+	}
+	if err := addRevision(ctx, tx, "idea", ideaID, item.Version, &userID, "update_tags", before, ideaSnapshot(item)); err != nil {
+		return err
+	}
+	return a.publish(tx, "idea.updated", "idea", ideaID)
 }
 
 func (a *App) exportData(w http.ResponseWriter, r *http.Request) {

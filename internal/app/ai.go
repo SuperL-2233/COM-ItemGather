@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -32,8 +33,8 @@ type AIResult struct {
 	Attributes        []Attribute `json:"attributes"`
 }
 type AITask struct {
-	ID, IdeaID, SourceContent, Mode, Status, LastError string
-	SourceContentVersion, Attempts, MaxAttempts        int
+	ID, IdeaID, SourceContent, Mode, Status, LastError         string
+	SourceContentVersion, SourceVersion, Attempts, MaxAttempts int
 }
 type aiCallError struct {
 	message    string
@@ -237,7 +238,7 @@ func (w *AIWorker) run(ctx context.Context) {
 func (w *AIWorker) claim(ctx context.Context) (AITask, bool, error) {
 	var task AITask
 	lease := time.Now().UTC().Add(w.a.cfg.AITimeout + 30*time.Second).Format(time.RFC3339Nano)
-	err := w.a.db.QueryRowContext(ctx, `UPDATE ai_tasks SET status='running',leased_until=?,updated_at=? WHERE id=(SELECT id FROM ai_tasks WHERE status='pending' AND next_attempt_at<=? ORDER BY created_at LIMIT 1) AND status='pending' RETURNING id,idea_id,source_content,source_content_version,mode,status,attempts,max_attempts,COALESCE(last_error,'')`, lease, now(), now()).Scan(&task.ID, &task.IdeaID, &task.SourceContent, &task.SourceContentVersion, &task.Mode, &task.Status, &task.Attempts, &task.MaxAttempts, &task.LastError)
+	err := w.a.db.QueryRowContext(ctx, `UPDATE ai_tasks SET status='running',leased_until=?,updated_at=? WHERE id=(SELECT id FROM ai_tasks WHERE status='pending' AND next_attempt_at<=? ORDER BY created_at LIMIT 1) AND status='pending' RETURNING id,idea_id,source_content,source_content_version,source_version,mode,status,attempts,max_attempts,COALESCE(last_error,'')`, lease, now(), now()).Scan(&task.ID, &task.IdeaID, &task.SourceContent, &task.SourceContentVersion, &task.SourceVersion, &task.Mode, &task.Status, &task.Attempts, &task.MaxAttempts, &task.LastError)
 	if err == sql.ErrNoRows {
 		return task, false, nil
 	}
@@ -248,10 +249,10 @@ func (w *AIWorker) claim(ctx context.Context) (AITask, bool, error) {
 	w.a.emit("idea.ai_changed", "idea", task.IdeaID)
 	return task, true, nil
 }
-func (a *App) enqueueAITx(ctx context.Context, tx *sql.Tx, ideaID, content string, contentVersion int, mode string) error {
+func (a *App) enqueueAITx(ctx context.Context, tx *sql.Tx, ideaID, content string, contentVersion, version int, mode string) error {
 	id := security.ID()
 	timestamp := now()
-	_, err := tx.ExecContext(ctx, "INSERT INTO ai_tasks(id,idea_id,source_content,source_content_version,mode,status,max_attempts,next_attempt_at,created_at,updated_at) VALUES(?,?,?,?,?,'pending',?,?,?,?)", id, ideaID, content, contentVersion, mode, a.cfg.AIMaxRetries+1, timestamp, timestamp, timestamp)
+	_, err := tx.ExecContext(ctx, "INSERT INTO ai_tasks(id,idea_id,source_content,source_content_version,source_version,mode,status,max_attempts,next_attempt_at,created_at,updated_at) VALUES(?,?,?,?,?,?,'pending',?,?,?,?)", id, ideaID, content, contentVersion, version, mode, a.cfg.AIMaxRetries+1, timestamp, timestamp, timestamp)
 	return err
 }
 
@@ -335,37 +336,44 @@ func (w *AIWorker) process(ctx context.Context, task AITask) {
 	for _, field := range item.ManualFields {
 		manual[field] = true
 	}
-	if task.Mode == "full" {
-		for _, field := range []string{"display_title", "summary", "name_candidates", "idea_types", "product_directions", "tags", "attributes"} {
-			delete(manual, field)
+	if task.Mode == "full" && task.SourceVersion > 0 {
+		changed, err := organizedFieldsChangedSince(tx, task.IdeaID, task.SourceVersion)
+		if err != nil {
+			w.a.log.Printf("AI field protection lookup failed: %v", err)
+			return
 		}
-	} else if manual["display_title"] {
+		for field := range changedOrganizedFields(before, before) {
+			if !changed[field] {
+				delete(manual, field)
+			}
+		}
+	}
+	if manual["display_title"] {
 		result.DisplayTitle = item.DisplayTitle
 	}
-	if task.Mode != "full" {
-		if manual["summary"] {
-			result.Summary = item.Summary
-		}
-		if manual["name_candidates"] {
-			result.NameCandidates = item.NameCandidates
-		}
-		if manual["idea_types"] {
-			result.IdeaTypes = item.IdeaTypes
-		}
-		if manual["product_directions"] {
-			result.ProductDirections = item.ProductDirections
-		}
-		if manual["tags"] {
-			result.Tags = item.Tags
-		}
-		if manual["attributes"] {
-			result.Attributes = item.Attributes
-		}
+	if manual["summary"] {
+		result.Summary = item.Summary
+	}
+	if manual["name_candidates"] {
+		result.NameCandidates = item.NameCandidates
+	}
+	if manual["idea_types"] {
+		result.IdeaTypes = item.IdeaTypes
+	}
+	if manual["product_directions"] {
+		result.ProductDirections = item.ProductDirections
+	}
+	if manual["tags"] {
+		result.Tags = item.Tags
+	}
+	if manual["attributes"] {
+		result.Attributes = item.Attributes
 	}
 	manualList := make([]string, 0, len(manual))
 	for field := range manual {
 		manualList = append(manualList, field)
 	}
+	slices.Sort(manualList)
 	item.DisplayTitle = result.DisplayTitle
 	item.Summary = result.Summary
 	item.NameCandidates = result.NameCandidates
@@ -382,12 +390,12 @@ func (w *AIWorker) process(ctx context.Context, task AITask) {
 	if err != nil {
 		return
 	}
-	if !manual["attributes"] || task.Mode == "full" {
+	if !manual["attributes"] {
 		if err = replaceIdeaAttributes(context.Background(), tx, item.ID, item.Attributes); err != nil {
 			return
 		}
 	}
-	if !manual["tags"] || task.Mode == "full" {
+	if !manual["tags"] {
 		if err = replaceIdeaTags(context.Background(), tx, item.ID, item.Tags); err != nil {
 			return
 		}
@@ -403,6 +411,34 @@ func (w *AIWorker) process(ctx context.Context, task AITask) {
 		return
 	}
 	w.a.emit("idea.ai_changed", "idea", task.IdeaID)
+}
+
+func organizedFieldsChangedSince(tx *sql.Tx, ideaID string, version int) (map[string]bool, error) {
+	rows, err := tx.Query(`SELECT before_data,after_data FROM revisions WHERE entity_type='idea' AND entity_id=? AND version>? AND action NOT LIKE 'ai_%'`, ideaID, version)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	changed := map[string]bool{}
+	for rows.Next() {
+		var beforeJSON, afterJSON string
+		if err := rows.Scan(&beforeJSON, &afterJSON); err != nil {
+			return nil, err
+		}
+		var before, after ideaFields
+		if err := json.Unmarshal([]byte(beforeJSON), &before); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(afterJSON), &after); err != nil {
+			return nil, err
+		}
+		for field, modified := range changedOrganizedFields(before, after) {
+			if modified {
+				changed[field] = true
+			}
+		}
+	}
+	return changed, rows.Err()
 }
 func aPublish(tx *sql.Tx, eventType, entityType, id string) error {
 	_, err := tx.Exec("INSERT INTO events(event_type,entity_type,entity_id,created_at) VALUES(?,?,?,?)", eventType, entityType, id, now())

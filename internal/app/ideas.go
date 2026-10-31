@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -110,6 +111,20 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 
 func ideaSnapshot(item Idea) ideaFields {
 	return ideaFields{OriginalContent: item.OriginalContent, Content: item.Content, DisplayTitle: item.DisplayTitle, Summary: item.Summary, Notes: item.Notes, NameCandidates: item.NameCandidates, IdeaTypes: item.IdeaTypes, ProductDirections: item.ProductDirections, Tags: item.Tags, Attributes: item.Attributes, ManualFields: item.ManualFields, ContentVersion: item.ContentVersion, AIStatus: item.AIStatus, AIError: item.AIError}
+}
+
+func changedOrganizedFields(before, after ideaFields) map[string]bool {
+	return map[string]bool{
+		"display_title":      before.DisplayTitle != after.DisplayTitle,
+		"summary":            before.Summary != after.Summary,
+		"name_candidates":    !slices.Equal(before.NameCandidates, after.NameCandidates),
+		"idea_types":         !slices.Equal(before.IdeaTypes, after.IdeaTypes),
+		"product_directions": !slices.Equal(before.ProductDirections, after.ProductDirections),
+		"tags":               !slices.Equal(before.Tags, after.Tags),
+		"attributes": !slices.EqualFunc(before.Attributes, after.Attributes, func(a, b Attribute) bool {
+			return a.Key == b.Key && a.Value == b.Value && a.Certainty == b.Certainty
+		}),
+	}
 }
 func addRevision(ctx context.Context, tx *sql.Tx, kind, id string, version int, actor *string, action string, before, after any) error {
 	var beforeJSON any
@@ -237,7 +252,7 @@ func (a *App) createIdea(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status == "pending" {
-		if err = a.enqueueAITx(r.Context(), tx, id, body.Content, 1, "normal"); err != nil {
+		if err = a.enqueueAITx(r.Context(), tx, id, body.Content, 1, 1, "normal"); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -405,30 +420,24 @@ func (a *App) updateIdea(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.DisplayTitle != nil {
 		item.DisplayTitle = clean(*body.DisplayTitle, 160)
-		manual["display_title"] = true
 	}
 	if body.Summary != nil {
 		item.Summary = clean(*body.Summary, 4000)
-		manual["summary"] = true
 	}
 	if body.Notes != nil {
 		item.Notes = clean(*body.Notes, 20000)
 	}
 	if body.NameCandidates != nil {
 		item.NameCandidates = validStringList(*body.NameCandidates, 100)
-		manual["name_candidates"] = true
 	}
 	if body.IdeaTypes != nil {
 		item.IdeaTypes = validStringList(*body.IdeaTypes, 30)
-		manual["idea_types"] = true
 	}
 	if body.ProductDirections != nil {
 		item.ProductDirections = validStringList(*body.ProductDirections, 30)
-		manual["product_directions"] = true
 	}
 	if body.Tags != nil {
 		item.Tags = validStringList(*body.Tags, 50)
-		manual["tags"] = true
 	}
 	if body.Attributes != nil {
 		attrs, attrErr := validAttributes(*body.Attributes)
@@ -437,7 +446,11 @@ func (a *App) updateIdea(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		item.Attributes = attrs
-		manual["attributes"] = true
+	}
+	for field, changed := range changedOrganizedFields(before, ideaSnapshot(item)) {
+		if changed {
+			manual[field] = true
+		}
 	}
 	if contentChanged {
 		item.ContentVersion++
@@ -452,6 +465,8 @@ func (a *App) updateIdea(w http.ResponseWriter, r *http.Request) {
 	for field := range manual {
 		manualList = append(manualList, field)
 	}
+	slices.Sort(manualList)
+	item.ManualFields = manualList
 	item.Version++
 	item.UpdatedAt = now()
 	result, err := tx.ExecContext(r.Context(), `UPDATE ideas SET content=?,display_title=?,summary=?,notes=?,name_candidates_json=?,idea_types_json=?,product_directions_json=?,tags_json=?,manual_fields_json=?,content_version=?,ai_status=?,ai_error=?,version=?,updated_at=? WHERE id=? AND version=?`, item.Content, item.DisplayTitle, item.Summary, item.Notes, encodeJSON(item.NameCandidates), encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(item.Tags), encodeJSON(manualList), item.ContentVersion, item.AIStatus, item.AIError, item.Version, item.UpdatedAt, id, body.Version)
@@ -645,7 +660,13 @@ func (a *App) retryAI(w http.ResponseWriter, r *http.Request) {
 	}
 	user := currentUser(r)
 	id := r.PathValue("id")
-	item, err := loadIdea(r.Context(), a.db, id, user.ID, false, false)
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	item, err := loadIdea(r.Context(), tx, id, user.ID, false, false)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -654,8 +675,6 @@ func (a *App) retryAI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fail(400, "empty_content", "请先补充文字再整理"))
 		return
 	}
-	tx, _ := a.db.BeginTx(r.Context(), nil)
-	defer tx.Rollback()
 	var active int
 	tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM ai_tasks WHERE idea_id=? AND status IN ('pending','running')", id).Scan(&active)
 	if active > 0 {
@@ -666,7 +685,7 @@ func (a *App) retryAI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err = a.enqueueAITx(r.Context(), tx, id, item.Content, item.ContentVersion, body.Mode); err != nil {
+	if err = a.enqueueAITx(r.Context(), tx, id, item.Content, item.ContentVersion, item.Version, body.Mode); err != nil {
 		writeError(w, err)
 		return
 	}

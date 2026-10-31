@@ -36,19 +36,20 @@ func (a *App) restoreIdeaRevision(w http.ResponseWriter, r *http.Request, versio
 	item.ProductDirections = validStringList(data.ProductDirections, 30)
 	item.Tags = validStringList(data.Tags, 50)
 	item.Attributes = attrs
+	item.ManualFields = append([]string{}, data.ManualFields...)
 	if item.Content != data.Content {
 		item.Content = data.Content
 		item.ContentVersion++
-		item.AIStatus = "idle"
-		item.AIError = ""
-		if _, err = tx.ExecContext(r.Context(), "UPDATE ai_tasks SET status='cancelled',updated_at=? WHERE idea_id=? AND status IN ('pending','running')", now(), id); err != nil {
-			writeError(w, err)
-			return
-		}
+	}
+	item.AIStatus = "idle"
+	item.AIError = ""
+	if _, err = tx.ExecContext(r.Context(), "UPDATE ai_tasks SET status='cancelled',updated_at=? WHERE idea_id=? AND status IN ('pending','running')", now(), id); err != nil {
+		writeError(w, err)
+		return
 	}
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), `UPDATE ideas SET content=?,display_title=?,summary=?,notes=?,name_candidates_json=?,idea_types_json=?,product_directions_json=?,tags_json=?,manual_fields_json=?,content_version=?,version=?,updated_at=? WHERE id=? AND version=?`, item.Content, item.DisplayTitle, item.Summary, item.Notes, encodeJSON(item.NameCandidates), encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(item.Tags), encodeJSON(data.ManualFields), item.ContentVersion, item.Version, item.UpdatedAt, id, version)
+	result, err := tx.ExecContext(r.Context(), `UPDATE ideas SET content=?,display_title=?,summary=?,notes=?,name_candidates_json=?,idea_types_json=?,product_directions_json=?,tags_json=?,manual_fields_json=?,content_version=?,ai_status=?,ai_error=?,version=?,updated_at=? WHERE id=? AND version=?`, item.Content, item.DisplayTitle, item.Summary, item.Notes, encodeJSON(item.NameCandidates), encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(item.Tags), encodeJSON(item.ManualFields), item.ContentVersion, item.AIStatus, item.AIError, item.Version, item.UpdatedAt, id, version)
 	if err != nil {
 		writeError(w, err)
 		return

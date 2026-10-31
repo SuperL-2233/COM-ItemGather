@@ -14,6 +14,20 @@ func TestSearchFilters(t *testing.T) {
 	member := newTestClient(t, environment.server)
 	member.login(t, "author-two", "correct-horse-42")
 	createTestIdea(t, member, "other-author", "报纸包装")
+	for _, client := range []*testClient{admin, member} {
+		status, data := client.request(t, "POST", "/api/products", map[string]string{"internal_name": "按创建者搜索的商品"})
+		assertStatus(t, status, 201, data)
+	}
+	for _, kind := range []string{"all", "products"} {
+		status, data := admin.request(t, "GET", "/api/search?author="+member.user.ID+"&kind="+kind, nil)
+		assertStatus(t, status, 200, data)
+		products := decodeTestJSON[struct {
+			Products []Product `json:"products"`
+		}](t, data).Products
+		if len(products) != 1 || products[0].CreatedBy != member.user.ID {
+			t.Fatalf("product creator filter failed for %s: %+v", kind, products)
+		}
+	}
 
 	status, data := admin.request(t, "GET", "/api/search?q="+url.QueryEscape("青苹果")+"&kind=ideas&idea_type="+url.QueryEscape("名称")+"&direction="+url.QueryEscape("饮料")+"&author="+admin.user.ID, nil)
 	assertStatus(t, status, 200, data)

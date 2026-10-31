@@ -62,8 +62,11 @@ func Load() (Config, error) {
 		BackupDir:       env("BACKUP_DIR", "backups"), BackupInterval: duration("BACKUP_INTERVAL", 24*time.Hour), BackupKeep: integer("BACKUP_KEEP", 10), BackupRetentionDays: integer("BACKUP_RETENTION_DAYS", 30),
 		SecureCookie: boolean("COOKIE_SECURE", secureDefault),
 	}
-	if cfg.AIMaxRetries < 0 || cfg.AIMaxRetries > 10 {
-		return cfg, fmt.Errorf("AI_MAX_RETRIES must be between 0 and 10")
+	if cfg.AIMaxRetries < 0 || cfg.AIMaxRetries > 3 {
+		return cfg, fmt.Errorf("AI_MAX_RETRIES must be between 0 and 3")
+	}
+	if cfg.AITimeout <= 0 || cfg.BackupInterval <= 0 {
+		return cfg, fmt.Errorf("AI_TIMEOUT and BACKUP_INTERVAL must be positive")
 	}
 	if cfg.AIWorkers < 1 || cfg.AIWorkers > 16 {
 		return cfg, fmt.Errorf("AI_WORKERS must be between 1 and 16")
