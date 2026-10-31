@@ -45,20 +45,9 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 		rows.Scan(&attr.ID, &attr.Key, &attr.Value, &attr.Certainty)
 		item.Attributes = append(item.Attributes, attr)
 	}
-	files, err := q.QueryContext(ctx, "SELECT id,product_id,original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE product_id=? ORDER BY created_at", id)
+	item.Attachments, err = loadAttachments(ctx, q, "product", id, -1)
 	if err != nil {
 		return item, err
-	}
-	defer files.Close()
-	for files.Next() {
-		var file Attachment
-		var thumb bool
-		files.Scan(&file.ID, &file.ProductID, &file.OriginalName, &file.MimeType, &file.Size, &thumb, &file.CreatedAt)
-		file.URL = "/api/attachments/" + file.ID
-		if thumb {
-			file.ThumbnailURL = file.URL + "?thumbnail=1"
-		}
-		item.Attachments = append(item.Attachments, file)
 	}
 	if related {
 		item.Links = []Link{}

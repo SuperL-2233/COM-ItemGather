@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted } from 'vue'
+import { api } from './api'
 
 export function useEvents(sync: () => void) {
   let source: EventSource | undefined
@@ -8,6 +9,7 @@ export function useEvents(sync: () => void) {
     source = new EventSource('/api/events')
     source.onopen = schedule
     source.addEventListener('change', schedule)
+    source.onerror = () => { void api('/auth/me').catch(() => {}) }
   })
   onUnmounted(() => { clearTimeout(timer); source?.close() })
 }

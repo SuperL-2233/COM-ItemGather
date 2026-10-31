@@ -78,20 +78,9 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 		rows.Scan(&attr.ID, &attr.Key, &attr.Value, &attr.Certainty)
 		item.Attributes = append(item.Attributes, attr)
 	}
-	attachmentRows, err := q.QueryContext(ctx, "SELECT id,idea_id,original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE idea_id=? ORDER BY created_at", id)
+	item.Attachments, err = loadAttachments(ctx, q, "idea", id, -1)
 	if err != nil {
 		return item, err
-	}
-	defer attachmentRows.Close()
-	for attachmentRows.Next() {
-		var file Attachment
-		var thumb bool
-		attachmentRows.Scan(&file.ID, &file.IdeaID, &file.OriginalName, &file.MimeType, &file.Size, &thumb, &file.CreatedAt)
-		file.URL = "/api/attachments/" + file.ID
-		if thumb {
-			file.ThumbnailURL = file.URL + "?thumbnail=1"
-		}
-		item.Attachments = append(item.Attachments, file)
 	}
 	if related {
 		item.Links = []Link{}
@@ -336,6 +325,18 @@ func (a *App) listIdeas(w http.ResponseWriter, r *http.Request) {
 		item.Attributes = []Attribute{}
 		item.Attachments = []Attachment{}
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, err)
+		return
+	}
+	rows.Close()
+	for index := range items {
+		items[index].Attachments, err = loadAttachments(r.Context(), a.db, "idea", items[index].ID, 1)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	writeJSON(w, 200, map[string]any{"items": items, "total": total, "limit": limit, "offset": offset})
 }

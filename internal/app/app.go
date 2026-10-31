@@ -30,6 +30,7 @@ type App struct {
 	ai         *AIWorker
 	limiter    *loginLimiter
 	apiLimiter *requestLimiter
+	runContext context.Context
 }
 
 type APIError struct {
@@ -48,7 +49,7 @@ func New(db *sql.DB, cfg config.Config, logger *log.Logger) *App {
 	if logger == nil {
 		logger = log.New(os.Stderr, "", log.LstdFlags)
 	}
-	a := &App{db: db, cfg: cfg, log: logger, mux: http.NewServeMux(), hub: NewHub(), limiter: newLoginLimiter(), apiLimiter: newRequestLimiter(300)}
+	a := &App{db: db, cfg: cfg, log: logger, mux: http.NewServeMux(), hub: NewHub(), limiter: newLoginLimiter(), apiLimiter: newRequestLimiter(300), runContext: context.Background()}
 	a.routes()
 	a.ai = NewAIWorker(a)
 	return a
@@ -68,7 +69,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mux.ServeHTTP(w, r)
 }
 
-func (a *App) Start(ctx context.Context) { a.ai.Start(ctx) }
+func (a *App) Start(ctx context.Context) { a.runContext = ctx; a.ai.Start(ctx) }
 func (a *App) DB() *sql.DB               { return a.db }
 
 func (a *App) routes() {
@@ -152,6 +153,10 @@ func (a *App) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		expiresAt, _ := time.Parse(time.RFC3339Nano, expires)
 		if !expiresAt.After(time.Now()) {
 			writeError(w, fail(401, "unauthenticated", "登录已过期，请重新登录"))
+			return
+		}
+		if expected := r.Header.Get("X-User-ID"); expected != "" && expected != user.ID {
+			writeError(w, fail(409, "account_changed", "登录账号已变化，请刷新页面后重试"))
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {

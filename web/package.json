@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.51.1",
+    "@types/node": "18.19.130",
     "@vitejs/plugin-vue": "5.2.3",
     "typescript": "5.8.3",
     "vite": "6.3.5",

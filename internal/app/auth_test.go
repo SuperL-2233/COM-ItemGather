@@ -84,6 +84,28 @@ func TestCSRFRequired(t *testing.T) {
 		t.Fatal("expected csrf error")
 	}
 }
+
+func TestStaleBrowserCannotWriteAsNewCookieAccount(t *testing.T) {
+	environment := newTestEnvironment(t, nil)
+	client := newAdminClient(t, environment)
+	request, _ := http.NewRequest("POST", client.base+"/api/ideas", strings.NewReader(`{"content":"must not be saved"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CSRF-Token", client.csrf)
+	request.Header.Set("X-User-ID", "previous-account")
+	response, err := client.http.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 409 {
+		t.Fatalf("stale account request accepted: HTTP %d", response.StatusCode)
+	}
+	var count int
+	environment.db.QueryRow("SELECT COUNT(*) FROM ideas").Scan(&count)
+	if count != 0 {
+		t.Fatal("stale browser wrote data using another account's cookie")
+	}
+}
 func TestPasswordReset(t *testing.T) {
 	environment := newTestEnvironment(t, nil)
 	admin := newAdminClient(t, environment)

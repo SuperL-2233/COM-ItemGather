@@ -64,6 +64,9 @@ func (a *App) events(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sendPending := func() error {
+		if !a.eventSessionActive(r) {
+			return fail(401, "unauthenticated", "登录已失效")
+		}
 		rows, err := a.db.QueryContext(r.Context(), "SELECT id,event_type,entity_type,entity_id,created_at FROM events WHERE id>? ORDER BY id LIMIT 500", lastID)
 		if err != nil {
 			return err
@@ -99,15 +102,26 @@ func (a *App) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-a.runContext.Done():
+			return
 		case <-notifications:
 			if sendPending() != nil {
 				return
 			}
 		case <-heartbeat.C:
+			if !a.eventSessionActive(r) {
+				return
+			}
 			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+func (a *App) eventSessionActive(r *http.Request) bool {
+	var active int
+	err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='active'`, currentSession(r), now()).Scan(&active)
+	return err == nil && active == 1
 }

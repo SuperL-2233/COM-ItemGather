@@ -238,7 +238,7 @@ func (a *App) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": name}))
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	http.ServeContent(w, r, name, stat.ModTime(), file)
 }
@@ -277,6 +277,32 @@ func (a *App) deleteAttachment(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) lockAttachments(ctx context.Context) (func(), error) {
 	return filelock.Acquire(ctx, a.cfg.AttachmentDir+".lock")
+}
+
+func loadAttachments(ctx context.Context, q querier, kind, id string, limit int) ([]Attachment, error) {
+	column := "idea_id"
+	if kind == "product" {
+		column = "product_id"
+	}
+	rows, err := q.QueryContext(ctx, "SELECT id,COALESCE(idea_id,''),COALESCE(product_id,''),original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE "+column+"=? ORDER BY created_at,id LIMIT ?", id, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Attachment{}
+	for rows.Next() {
+		var item Attachment
+		var thumbnail bool
+		if err := rows.Scan(&item.ID, &item.IdeaID, &item.ProductID, &item.OriginalName, &item.MimeType, &item.Size, &thumbnail, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		item.URL = "/api/attachments/" + item.ID
+		if thumbnail {
+			item.ThumbnailURL = item.URL + "?thumbnail=1"
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 func (a *App) attachmentPaths(ctx context.Context, q querier, kind, id string) []string {
 	rows, err := q.QueryContext(ctx, "SELECT file_path,COALESCE(thumbnail_path,'') FROM attachments WHERE "+kind+"_id=?", id)

@@ -131,6 +131,7 @@ func (a *App) me(w http.ResponseWriter, r *http.Request) {
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 	a.db.ExecContext(r.Context(), "UPDATE sessions SET revoked_at=? WHERE token_hash=?", now(), currentSession(r))
 	http.SetCookie(w, &http.Cookie{Name: "com_session", Value: "", Path: "/", HttpOnly: true, Secure: a.cfg.SecureCookie, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	a.hub.Notify()
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -428,10 +429,12 @@ func (a *App) revokeSession(w http.ResponseWriter, r *http.Request) {
 	if r.PathValue("hash") == currentSession(r) {
 		http.SetCookie(w, &http.Cookie{Name: "com_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: a.cfg.SecureCookie, SameSite: http.SameSiteLaxMode})
 	}
+	a.hub.Notify()
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (a *App) revokeOtherSessions(w http.ResponseWriter, r *http.Request) {
 	a.db.ExecContext(r.Context(), "UPDATE sessions SET revoked_at=? WHERE user_id=? AND token_hash<>? AND revoked_at IS NULL", now(), currentUser(r).ID, currentSession(r))
+	a.hub.Notify()
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 func (a *App) listUsers(w http.ResponseWriter, r *http.Request) {
@@ -480,6 +483,7 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Status == "disabled" {
 		a.db.ExecContext(r.Context(), "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL", now(), r.PathValue("id"))
+		a.hub.Notify()
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }

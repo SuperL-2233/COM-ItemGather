@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"context"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -65,5 +66,25 @@ func TestSSEUpdateAndReplay(t *testing.T) {
 	event = waitEvent(t, replayed)
 	if !strings.Contains(event, "idea.created") {
 		t.Fatal("SSE reconnect did not replay missed events")
+	}
+}
+
+func TestSSEClosesWhenSessionRevokedOrServerStops(t *testing.T) {
+	for _, reason := range []string{"revoked", "shutdown"} {
+		t.Run(reason, func(t *testing.T) {
+			env := newTestEnvironment(t, nil)
+			client := newAdminClient(t, env)
+			reader, cancel := openEventStream(t, client, "")
+			defer cancel()
+			if reason == "revoked" {
+				status, data := client.request(t, "POST", "/api/auth/logout", nil)
+				assertStatus(t, status, 200, data)
+			} else {
+				env.cancel()
+			}
+			if _, err := reader.ReadString('\n'); err != io.EOF {
+				t.Fatalf("SSE stream did not close after %s: %v", reason, err)
+			}
+		})
 	}
 }

@@ -47,7 +47,7 @@ async function search() {
   }
 }
 function changeKind() {
-  if (kind.value === 'products') { ideaType.value = ''; direction.value = ''; author.value = '' }
+  if (kind.value === 'products') { ideaType.value = ''; direction.value = '' }
   search()
 }
 onMounted(() => {
@@ -72,8 +72,8 @@ onMounted(() => {
       <template v-if="kind !== 'products'">
         <select v-model="ideaType" aria-label="内容类型" @change="search"><option value="">全部内容类型</option><option v-for="item in ideaTypes" :key="item" :value="item">{{ item }}</option></select>
         <select v-model="direction" aria-label="商品方向" @change="search"><option value="">全部商品方向</option><option v-for="item in directions" :key="item" :value="item">{{ item }}</option></select>
-        <select v-model="author" aria-label="创建者" @change="search"><option value="">全部创建者</option><option v-for="item in creators" :key="item.id" :value="item.id">{{ item.nickname }}</option></select>
       </template>
+        <select v-model="author" aria-label="创建者" @change="search"><option value="">全部创建者</option><option v-for="item in creators" :key="item.id" :value="item.id">{{ item.nickname }}</option></select>
     </form>
     <p v-if="error" class="error-text">{{ error }}</p>
     <template v-if="searched && !loading">

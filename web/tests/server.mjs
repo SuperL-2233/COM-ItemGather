@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const root = path.resolve('..')
+const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:18088'
 const data = mkdtempSync(process.env.E2E_DATA_PREFIX || path.join(tmpdir(), 'com-itemgather-e2e-'))
 const password = 'e2e-admin-password'
 const environment = {
   ...process.env,
   APP_ENV: 'test',
-  APP_LISTEN_ADDR: '127.0.0.1:18088',
-  APP_PUBLIC_URL: 'http://127.0.0.1:18088',
+  APP_LISTEN_ADDR: new URL(baseURL).host,
+  APP_PUBLIC_URL: baseURL,
   COOKIE_SECURE: 'false',
   DATABASE_PATH: path.join(data, 'app.db'),
   ATTACHMENT_DIR: path.join(data, 'attachments'),
@@ -24,6 +25,7 @@ const environment = {
   AI_MAX_RETRIES: '1',
   AI_WORKER_CONCURRENCY: '1',
 }
+const failedCalls = new Map()
 const mock = createServer((request, response) => {
   let body = ''
   request.on('data', chunk => { body += chunk })
@@ -34,6 +36,11 @@ const mock = createServer((request, response) => {
     }
     const payload = JSON.parse(body)
     const content = payload.messages.at(-1).content
+    if (content.startsWith('整理重试验收') && (failedCalls.get(content) || 0) < 2) {
+      failedCalls.set(content, (failedCalls.get(content) || 0) + 1)
+      response.writeHead(500).end()
+      return
+    }
     const result = {
       display_title: content === '绿色风暴' ? content : content.slice(0, 80),
       summary: content === '绿色风暴' ? '青苹果饮料' : content.slice(0, 200),

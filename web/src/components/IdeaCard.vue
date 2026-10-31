@@ -6,10 +6,29 @@ import { ideaTitle, shortDate, aiLabels } from '../utils'
 const props = defineProps<{ idea: Idea }>()
 const emit = defineEmits<{ changed: [] }>()
 const busy = ref(false)
-async function favorite() { busy.value = true; try { await api(`/ideas/${props.idea.id}/favorite`, { method: 'POST', body: JSON.stringify({ favorite: !props.idea.favorite }) }); emit('changed') } finally { busy.value = false } }
+const error = ref('')
+async function favorite() { busy.value = true; error.value = ''; try { await api(`/ideas/${props.idea.id}/favorite`, { method: 'POST', body: JSON.stringify({ favorite: !props.idea.favorite }) }); emit('changed') } catch (e) { error.value = (e as Error).message } finally { busy.value = false } }
+async function retry() { busy.value = true; error.value = ''; try { await api(`/ideas/${props.idea.id}/ai`, { method: 'POST', body: JSON.stringify({ mode: 'normal' }) }); emit('changed') } catch (e) { error.value = (e as Error).message } finally { busy.value = false } }
 </script>
 <template>
   <article class="idea-card" :class="{ 'ai-failed': idea.ai_status === 'failed' }">
-    <div class="card-main"><RouterLink :to="`/ideas/${idea.id}`" class="card-title">{{ ideaTitle(idea) }}</RouterLink><p v-if="idea.summary && idea.summary !== ideaTitle(idea)" class="card-summary">{{ idea.summary }}</p><div v-if="idea.tags.length || idea.product_directions.length" class="tag-row"><span v-for="direction in idea.product_directions" :key="`d-${direction}`" class="tag direction">{{ direction }}</span><span v-for="tag in idea.tags" :key="tag" class="tag">{{ tag }}</span></div><div class="card-meta"><span>{{ idea.author_nickname }}</span><time :datetime="idea.created_at">{{ shortDate(idea.created_at) }}</time><span v-if="idea.product_count">{{ idea.product_count }} 个关联商品</span><RouterLink v-if="idea.ai_status === 'failed'" :to="`/ideas/${idea.id}`" class="error-text">{{ aiLabels.failed }}</RouterLink><span v-else-if="['pending','running'].includes(idea.ai_status)" class="muted">{{ aiLabels[idea.ai_status] }}…</span></div></div><button class="favorite-button" :class="{ active: idea.favorite }" :aria-label="idea.favorite ? '取消收藏' : '收藏'" :disabled="busy" @click="favorite">{{ idea.favorite ? '★' : '☆' }}</button>
+    <RouterLink v-if="idea.attachments.length" :to="`/ideas/${idea.id}`" class="card-preview"><img :src="idea.attachments[0].thumbnail_url || idea.attachments[0].url" :alt="idea.attachments[0].original_name" loading="lazy" /></RouterLink>
+    <div class="card-main">
+      <RouterLink :to="`/ideas/${idea.id}`" class="card-title">{{ ideaTitle(idea) }}</RouterLink>
+      <p v-if="idea.summary && idea.summary !== ideaTitle(idea)" class="card-summary">{{ idea.summary }}</p>
+      <div v-if="idea.idea_types.length || idea.tags.length || idea.product_directions.length" class="tag-row">
+        <span v-for="type in idea.idea_types" :key="`t-${type}`" class="tag">{{ type }}</span>
+        <span v-for="direction in idea.product_directions" :key="`d-${direction}`" class="tag direction">{{ direction }}</span>
+        <span v-for="tag in idea.tags" :key="tag" class="tag">{{ tag }}</span>
+      </div>
+      <div class="card-meta"><span>{{ idea.author_nickname }}</span><time :datetime="idea.created_at">{{ shortDate(idea.created_at) }}</time><span v-if="idea.product_count">{{ idea.product_count }} 个关联商品</span><template v-if="idea.ai_status === 'failed'"><span class="error-text">{{ aiLabels.failed }}</span><button class="button-link error-text" :disabled="busy" @click="retry">重新整理</button></template><span v-else-if="['pending','running'].includes(idea.ai_status)" class="muted">{{ aiLabels[idea.ai_status] }}…</span></div>
+      <p v-if="error" class="error-text">{{ error }}</p>
+    </div>
+    <button class="favorite-button" :class="{ active: idea.favorite }" :aria-label="idea.favorite ? '取消收藏' : '收藏'" :disabled="busy" @click="favorite">{{ idea.favorite ? '★' : '☆' }}</button>
   </article>
 </template>
+<style scoped>
+.card-preview { flex: 0 0 88px; align-self: flex-start; }
+.card-preview img { width: 88px; height: 88px; object-fit: cover; border-radius: 6px; }
+@media (max-width: 480px) { .card-preview { flex-basis: 64px; } .card-preview img { width: 64px; height: 64px; } }
+</style>

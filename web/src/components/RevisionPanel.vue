@@ -6,7 +6,7 @@ import { formatDate } from '../utils'
 const props = defineProps<{ kind: 'idea' | 'product'; id: string; version: number }>()
 const emit = defineEmits<{ restored: [] }>()
 const items = ref<Revision[]>([]); const loading = ref(true); const error = ref('')
-const actionNames: Record<string, string> = { create: '创建', update: '编辑', delete: '移入回收站', restore: '恢复', restore_revision: '恢复历史' }
+const actionNames: Record<string, string> = { create: '创建', update: '编辑', update_tags: '标签维护', delete: '移入回收站', restore: '恢复', restore_revision: '恢复历史' }
 async function load() { loading.value = true; try { items.value = (await api<{ items: Revision[] }>(`/${props.kind === 'idea' ? 'ideas' : 'products'}/${props.id}/revisions`)).items } catch (e) { error.value = (e as Error).message } finally { loading.value = false } }
 async function restore(item: Revision) { if (!confirm(`恢复到版本 ${item.version}？当前内容会先保留为新的历史版本。`)) return; try { await api(`/${props.kind === 'idea' ? 'ideas' : 'products'}/${props.id}/revisions/${item.id}/restore`, { method: 'POST', body: JSON.stringify({ version: props.version }) }); emit('restored'); await load() } catch (e) { error.value = (e as Error).message } }
 onMounted(load)

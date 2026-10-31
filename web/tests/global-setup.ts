@@ -1,7 +1,7 @@
-import { expect, request } from '@playwright/test'
+import { expect, request, type FullConfig } from '@playwright/test'
 
-export default async function globalSetup() {
-  const baseURL = 'http://127.0.0.1:18088'
+export default async function globalSetup(config: FullConfig) {
+  const baseURL = config.projects[0].use.baseURL!
   const client = await request.newContext({ baseURL })
   const response = await client.post('/api/auth/login', { data: { username: 'admin', password: 'e2e-admin-password', remember: true, device_name: 'E2E 初始化' } })
   expect(response.ok()).toBeTruthy()

@@ -2,14 +2,13 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, auth, clearAuth } from './api'
-import { clearOffline } from './offline'
 
 const route = useRoute(); const router = useRouter(); const toastMessage = ref(''); const dark = ref(false); let toastTimer: ReturnType<typeof setTimeout> | undefined
 const publicPage = computed(() => !!route.meta.public)
 function showToast(event: Event) { toastMessage.value = (event as CustomEvent<string>).detail; clearTimeout(toastTimer); toastTimer = setTimeout(() => toastMessage.value = '', 3500) }
 function expired() { if (!route.meta.public) router.push('/login') }
 function toggleTheme() { dark.value = !dark.value; document.documentElement.dataset.theme = dark.value ? 'dark' : 'light'; localStorage.setItem('com-theme', dark.value ? 'dark' : 'light') }
-async function logout() { try { await api('/auth/logout', { method: 'POST' }) } finally { clearAuth(); await clearOffline().catch(() => {}); if ('caches' in window) (await caches.keys()).forEach(key => caches.delete(key)); router.push('/login') } }
+async function logout() { const userID = auth.user?.id; try { await api('/auth/logout', { method: 'POST' }) } finally { await clearAuth(true, userID); router.push('/login') } }
 onMounted(() => { dark.value = localStorage.getItem('com-theme') === 'dark' || (!localStorage.getItem('com-theme') && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = dark.value ? 'dark' : 'light'; window.addEventListener('toast', showToast); window.addEventListener('auth:expired', expired) })
 onUnmounted(() => { window.removeEventListener('toast', showToast); window.removeEventListener('auth:expired', expired) })
 </script>
@@ -23,6 +22,7 @@ onUnmounted(() => { window.removeEventListener('toast', showToast); window.remov
     <main class="page"><RouterView /></main>
     <footer class="mobile-note">先记录，后整理</footer>
   </div>
-  <RouterView v-else />
+  <RouterView v-else-if="publicPage" />
+  <main v-else class="auth-page" aria-busy="true">正在验证登录…</main>
   <div v-if="toastMessage" class="toast" role="status">{{ toastMessage }}</div>
 </template>
