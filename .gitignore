@@ -1,0 +1,27 @@
+# Local tools and dependencies
+.tools/
+node_modules/
+web/node_modules/
+
+# Builds
+bin/
+web/dist/
+
+# Runtime data
+data/
+backups/
+*.db
+*.db-shm
+*.db-wal
+
+# Local configuration and logs
+.env
+*.log
+playwright-report/
+test-results/
+web/test-results/
+
+# Editors and OS
+.DS_Store
+.vscode/
+.idea/

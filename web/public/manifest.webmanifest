@@ -1,0 +1,15 @@
+{
+  "name": "COM 商品创意库",
+  "short_name": "COM 创意",
+  "description": "随时记录和整理 Call of Mommy 商品灵感",
+  "lang": "zh-CN",
+  "start_url": "/ideas",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f2",
+  "theme_color": "#276749",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
