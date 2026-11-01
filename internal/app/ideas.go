@@ -84,7 +84,7 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 	}
 	if related {
 		item.Links = []Link{}
-		linkRows, err := q.QueryContext(ctx, `SELECT l.id,l.idea_id,l.product_id,l.status,COALESCE(NULLIF(p.chinese_name,''),'未命名商品'),l.created_at,l.updated_at FROM idea_product_links l JOIN products p ON p.id=l.product_id WHERE l.idea_id=? AND p.deleted_at IS NULL ORDER BY l.created_at DESC`, id)
+		linkRows, err := q.QueryContext(ctx, `SELECT l.id,l.idea_id,l.product_id,l.status,COALESCE(NULLIF(p.chinese_name,''),NULLIF(p.english_name,''),'未命名商品'),l.created_at,l.updated_at FROM idea_product_links l JOIN products p ON p.id=l.product_id WHERE l.idea_id=? AND p.deleted_at IS NULL ORDER BY l.created_at DESC`, id)
 		if err != nil {
 			return item, err
 		}

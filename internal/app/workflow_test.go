@@ -33,17 +33,20 @@ func TestIdeaProductWorkflow(t *testing.T) {
 	}
 	products := []Product{}
 	for _, name := range []string{"青苹果汽水", "加速饮料"} {
-		status, data = client.request(t, "POST", "/api/products", map[string]any{"chinese_name": name, "company": "青苹果公司", "development_status": "concept"})
+		status, data = client.request(t, "POST", "/api/products", map[string]any{"chinese_name": name, "english_name": name + " English", "company": "青苹果公司", "development_status": "concept"})
 		assertStatus(t, status, 201, data)
 		product := decodeTestJSON[Product](t, data)
-		if product.ChineseName != name || product.Company != "青苹果公司" {
+		if product.ChineseName != name || product.EnglishName != name+" English" || product.Company != "青苹果公司" {
 			t.Fatalf("product fields were not saved: %+v", product)
 		}
 		products = append(products, product)
 	}
-	status, data = client.request(t, "PATCH", "/api/products/"+products[0].ID, map[string]any{"version": products[0].Version, "company": "新的所属公司"})
+	status, data = client.request(t, "PATCH", "/api/products/"+products[0].ID, map[string]any{"version": products[0].Version, "english_name": "Updated English", "company": "新的所属公司"})
 	assertStatus(t, status, 200, data)
 	products[0] = decodeTestJSON[Product](t, data)
+	if products[0].EnglishName != "Updated English" {
+		t.Fatalf("product English name was not updated: %+v", products[0])
+	}
 	status, data = client.request(t, "GET", "/api/products?q="+url.QueryEscape("新的所属公司"), nil)
 	assertStatus(t, status, 200, data)
 	companyPage := decodeTestJSON[struct {
@@ -51,6 +54,14 @@ func TestIdeaProductWorkflow(t *testing.T) {
 	}](t, data)
 	if companyPage.Total != 1 {
 		t.Fatalf("product company search returned %d results", companyPage.Total)
+	}
+	status, data = client.request(t, "GET", "/api/products?q="+url.QueryEscape("Updated English"), nil)
+	assertStatus(t, status, 200, data)
+	englishNamePage := decodeTestJSON[struct {
+		Total int `json:"total"`
+	}](t, data)
+	if englishNamePage.Total != 1 {
+		t.Fatalf("product English name search returned %d results", englishNamePage.Total)
 	}
 	for _, product := range products {
 		status, data = client.request(t, "POST", "/api/links", map[string]string{"idea_id": idea.ID, "product_id": product.ID, "status": "candidate"})
