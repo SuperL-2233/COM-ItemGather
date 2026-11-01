@@ -15,7 +15,7 @@ func TestSearchFilters(t *testing.T) {
 	member.login(t, "author-two", "correct-horse-42")
 	createTestIdea(t, member, "other-author", "报纸包装")
 	for _, client := range []*testClient{admin, member} {
-		status, data := client.request(t, "POST", "/api/products", map[string]string{"internal_name": "按创建者搜索的商品"})
+		status, data := client.request(t, "POST", "/api/products", map[string]string{"chinese_name": "按创建者搜索的商品"})
 		assertStatus(t, status, 201, data)
 	}
 	for _, kind := range []string{"all", "products"} {

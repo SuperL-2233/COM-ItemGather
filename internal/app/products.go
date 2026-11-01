@@ -11,8 +11,7 @@ import (
 )
 
 type productFields struct {
-	InternalName      string      `json:"internal_name"`
-	FinalBrandName    string      `json:"final_brand_name"`
+	ChineseName       string      `json:"chinese_name"`
 	Company           string      `json:"company"`
 	Category          string      `json:"category"`
 	Description       string      `json:"description"`
@@ -20,7 +19,7 @@ type productFields struct {
 	Attributes        []Attribute `json:"attributes"`
 }
 
-const productSelect = `SELECT p.id,p.internal_name,p.final_brand_name,p.company,p.category,p.description,p.development_status,p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
+const productSelect = `SELECT p.id,p.chinese_name,p.company,p.category,p.description,p.development_status,p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
 
 func loadProduct(ctx context.Context, q querier, id string, deleted, related bool) (Product, error) {
 	clause := "WHERE p.id=?"
@@ -29,7 +28,7 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	}
 	var item Product
 	var removed string
-	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.InternalName, &item.FinalBrandName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.IdeaCount)
+	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.IdeaCount)
 	if err != nil {
 		return item, ensureNoRows(err)
 	}
@@ -66,7 +65,7 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	return item, nil
 }
 func productSnapshot(item Product) productFields {
-	return productFields{InternalName: item.InternalName, FinalBrandName: item.FinalBrandName, Company: item.Company, Category: item.Category, Description: item.Description, DevelopmentStatus: item.DevelopmentStatus, Attributes: item.Attributes}
+	return productFields{ChineseName: item.ChineseName, Company: item.Company, Category: item.Category, Description: item.Description, DevelopmentStatus: item.DevelopmentStatus, Attributes: item.Attributes}
 }
 func validProductStatus(status string) bool {
 	return status == "concept" || status == "design" || status == "production" || status == "completed"
@@ -85,8 +84,7 @@ func replaceProductAttributes(ctx context.Context, tx *sql.Tx, id string, attrs 
 
 func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		InternalName      string      `json:"internal_name"`
-		FinalBrandName    string      `json:"final_brand_name"`
+		ChineseName       string      `json:"chinese_name"`
 		Company           string      `json:"company"`
 		Category          string      `json:"category"`
 		Description       string      `json:"description"`
@@ -96,11 +94,6 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeBody(w, r, &body); err != nil {
 		writeError(w, err)
-		return
-	}
-	body.InternalName = clean(body.InternalName, 160)
-	if body.InternalName == "" {
-		writeError(w, fail(422, "validation", "请填写内部工作名称"))
 		return
 	}
 	if body.DevelopmentStatus == "" {
@@ -128,7 +121,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(r.Context(), "INSERT INTO products(id,internal_name,final_brand_name,company,category,description,development_status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", id, body.InternalName, clean(body.FinalBrandName, 160), clean(body.Company, 160), clean(body.Category, 100), body.Description, body.DevelopmentStatus, user.ID, timestamp, timestamp)
+	_, err = tx.ExecContext(r.Context(), "INSERT INTO products(id,chinese_name,company,category,description,development_status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)", id, clean(body.ChineseName, 160), clean(body.Company, 160), clean(body.Category, 100), body.Description, body.DevelopmentStatus, user.ID, timestamp, timestamp)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -150,7 +143,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		}
 		a.publish(tx, "link.created", "idea", body.IdeaID)
 	}
-	item := Product{ID: id, InternalName: body.InternalName, FinalBrandName: clean(body.FinalBrandName, 160), Company: clean(body.Company, 160), Category: clean(body.Category, 100), Description: body.Description, DevelopmentStatus: body.DevelopmentStatus, CreatedBy: user.ID, CreatedAt: timestamp, UpdatedAt: timestamp, Version: 1, Attributes: attrs}
+	item := Product{ID: id, ChineseName: clean(body.ChineseName, 160), Company: clean(body.Company, 160), Category: clean(body.Category, 100), Description: body.Description, DevelopmentStatus: body.DevelopmentStatus, CreatedBy: user.ID, CreatedAt: timestamp, UpdatedAt: timestamp, Version: 1, Attributes: attrs}
 	if err = addRevision(r.Context(), tx, "product", id, 1, &user.ID, "create", nil, productSnapshot(item)); err != nil {
 		writeError(w, err)
 		return
@@ -192,8 +185,8 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	if query != "" {
 		like := "%" + escapeLike(query) + "%"
-		where += ` AND (p.internal_name LIKE ? ESCAPE '\' OR p.final_brand_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes pa WHERE pa.product_id=p.id AND (pa.key LIKE ? ESCAPE '\' OR pa.value LIKE ? ESCAPE '\')))`
-		for i := 0; i < 7; i++ {
+		where += ` AND (p.chinese_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes pa WHERE pa.product_id=p.id AND (pa.key LIKE ? ESCAPE '\' OR pa.value LIKE ? ESCAPE '\')))`
+		for i := 0; i < 6; i++ {
 			args = append(args, like)
 		}
 	}
@@ -209,7 +202,7 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item Product
 		var removed string
-		if err = rows.Scan(&item.ID, &item.InternalName, &item.FinalBrandName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.IdeaCount); err != nil {
+		if err = rows.Scan(&item.ID, &item.ChineseName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.IdeaCount); err != nil {
 			rows.Close()
 			writeError(w, err)
 			return
@@ -239,8 +232,7 @@ func (a *App) getProduct(w http.ResponseWriter, r *http.Request) {
 func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Version           int          `json:"version"`
-		InternalName      *string      `json:"internal_name"`
-		FinalBrandName    *string      `json:"final_brand_name"`
+		ChineseName       *string      `json:"chinese_name"`
 		Company           *string      `json:"company"`
 		Category          *string      `json:"category"`
 		Description       *string      `json:"description"`
@@ -269,15 +261,8 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	before := productSnapshot(item)
-	if body.InternalName != nil {
-		item.InternalName = clean(*body.InternalName, 160)
-		if item.InternalName == "" {
-			writeError(w, fail(422, "validation", "内部工作名称不能为空"))
-			return
-		}
-	}
-	if body.FinalBrandName != nil {
-		item.FinalBrandName = clean(*body.FinalBrandName, 160)
+	if body.ChineseName != nil {
+		item.ChineseName = clean(*body.ChineseName, 160)
 	}
 	if body.Company != nil {
 		item.Company = clean(*body.Company, 160)
@@ -309,7 +294,7 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET internal_name=?,final_brand_name=?,company=?,category=?,description=?,development_status=?,version=?,updated_at=? WHERE id=? AND version=?", item.InternalName, item.FinalBrandName, item.Company, item.Category, item.Description, item.DevelopmentStatus, item.Version, item.UpdatedAt, id, body.Version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,company=?,category=?,description=?,development_status=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.Company, item.Category, item.Description, item.DevelopmentStatus, item.Version, item.UpdatedAt, id, body.Version)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -57,7 +57,7 @@ test('持久登录、AI 整理、双浏览器 SSE 和手动关联商品', async 
     await page.locator('.idea-card').filter({ hasText: '绿色风暴' }).locator('.card-title').click()
     await expect(page).toHaveURL(/\/ideas\/[0-9a-f-]+$/)
     await page.getByRole('button', { name: '由此灵感创建商品' }).click()
-    await page.getByLabel('内部工作名称').fill('青苹果汽水')
+    await page.getByLabel('商品中文名（可留空）').fill('青苹果汽水')
     await page.getByRole('button', { name: '创建并关联', exact: true }).click()
     await expect(page).toHaveURL(/\/products\/[0-9a-f-]+$/)
     await expect(page.locator('.linked-idea, .link-row, main')).toContainText('绿色风暴')
@@ -277,7 +277,7 @@ test('商品搜索可以按创建者筛选', async ({ page, browser }) => {
   try {
     for (const [target, name] of [[page, '创建者验收：管理员商品'], [second.page, '创建者验收：成员商品']] as const) {
       const me = await (await target.request.get('/api/auth/me')).json()
-      const created = await target.request.post('/api/products', { headers: { 'X-CSRF-Token': me.csrf_token }, data: { internal_name: name } })
+      const created = await target.request.post('/api/products', { headers: { 'X-CSRF-Token': me.csrf_token }, data: { chinese_name: name } })
       expect(created.status()).toBe(201)
     }
     const userID = accountIDs.get(second.page)!

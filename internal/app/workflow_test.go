@@ -33,11 +33,11 @@ func TestIdeaProductWorkflow(t *testing.T) {
 	}
 	products := []Product{}
 	for _, name := range []string{"青苹果汽水", "加速饮料"} {
-		status, data = client.request(t, "POST", "/api/products", map[string]any{"internal_name": name, "company": "青苹果公司", "development_status": "concept"})
+		status, data = client.request(t, "POST", "/api/products", map[string]any{"chinese_name": name, "company": "青苹果公司", "development_status": "concept"})
 		assertStatus(t, status, 201, data)
 		product := decodeTestJSON[Product](t, data)
-		if product.Company != "青苹果公司" {
-			t.Fatalf("product company was not saved: %+v", product)
+		if product.ChineseName != name || product.Company != "青苹果公司" {
+			t.Fatalf("product fields were not saved: %+v", product)
 		}
 		products = append(products, product)
 	}

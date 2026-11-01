@@ -95,7 +95,7 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if kind != "ideas" && ideaType == "" && direction == "" {
-		productRows, queryErr := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (?='' OR p.created_by=?) AND (?='' OR p.internal_name LIKE ? ESCAPE '\' OR p.final_brand_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, author, author, query, like, like, like, like, like, like, like)
+		productRows, queryErr := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (?='' OR p.created_by=?) AND (?='' OR p.chinese_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, author, author, query, like, like, like, like, like, like)
 		if queryErr != nil {
 			writeError(w, queryErr)
 			return

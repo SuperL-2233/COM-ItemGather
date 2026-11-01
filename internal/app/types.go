@@ -87,8 +87,7 @@ type Idea struct {
 
 type Product struct {
 	ID                string       `json:"id"`
-	InternalName      string       `json:"internal_name"`
-	FinalBrandName    string       `json:"final_brand_name"`
+	ChineseName       string       `json:"chinese_name"`
 	Company           string       `json:"company"`
 	Category          string       `json:"category"`
 	Description       string       `json:"description"`

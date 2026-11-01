@@ -84,7 +84,7 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 	}
 	if related {
 		item.Links = []Link{}
-		linkRows, err := q.QueryContext(ctx, `SELECT l.id,l.idea_id,l.product_id,l.status,p.internal_name,l.created_at,l.updated_at FROM idea_product_links l JOIN products p ON p.id=l.product_id WHERE l.idea_id=? AND p.deleted_at IS NULL ORDER BY l.created_at DESC`, id)
+		linkRows, err := q.QueryContext(ctx, `SELECT l.id,l.idea_id,l.product_id,l.status,COALESCE(NULLIF(p.chinese_name,''),'未命名商品'),l.created_at,l.updated_at FROM idea_product_links l JOIN products p ON p.id=l.product_id WHERE l.idea_id=? AND p.deleted_at IS NULL ORDER BY l.created_at DESC`, id)
 		if err != nil {
 			return item, err
 		}
@@ -761,9 +761,15 @@ func (a *App) restoreRevision(kind string) http.HandlerFunc {
 			a.restoreIdeaRevision(w, r, body.Version, data)
 		} else {
 			var data productFields
-			if json.Unmarshal([]byte(raw), &data) != nil {
+			var legacy struct {
+				FinalBrandName string `json:"final_brand_name"`
+			}
+			if json.Unmarshal([]byte(raw), &data) != nil || json.Unmarshal([]byte(raw), &legacy) != nil {
 				writeError(w, fail(500, "invalid_revision", "历史版本数据无效"))
 				return
+			}
+			if data.ChineseName == "" {
+				data.ChineseName = legacy.FinalBrandName
 			}
 			a.restoreProductRevision(w, r, body.Version, data)
 		}

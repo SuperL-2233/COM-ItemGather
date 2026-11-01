@@ -8,7 +8,7 @@ export interface Idea {
   author_id: string; author_nickname: string; created_at: string; updated_at: string; version: number; content_version: number
   ai_status: 'idle' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'; ai_error?: string; favorite: boolean; product_count: number; deleted_at?: string
 }
-export interface Product { id: string; internal_name: string; final_brand_name: string; company: string; category: string; description: string; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]; development_status: 'concept' | 'design' | 'production' | 'completed'; created_by: string; created_at: string; updated_at: string; version: number; idea_count: number; deleted_at?: string }
+export interface Product { id: string; chinese_name: string; company: string; category: string; description: string; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]; development_status: 'concept' | 'design' | 'production' | 'completed'; created_by: string; created_at: string; updated_at: string; version: number; idea_count: number; deleted_at?: string }
 export interface Page<T> { items: T[]; total: number; limit: number; offset: number }
 export interface Session { id: string; device_name: string; remember: boolean; created_at: string; last_seen_at: string; expires_at: string; current: boolean }
 export interface Revision { id: string; entity_type: string; entity_id: string; version: number; actor_id?: string; actor_nickname?: string; action: string; before: unknown; after: unknown; created_at: string }
