@@ -110,13 +110,14 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	}
 	item.InternalName = clean(data.InternalName, 160)
 	item.FinalBrandName = clean(data.FinalBrandName, 160)
+	item.Company = clean(data.Company, 160)
 	item.Category = clean(data.Category, 100)
 	item.Description = data.Description
 	item.DevelopmentStatus = data.DevelopmentStatus
 	item.Attributes = attrs
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET internal_name=?,final_brand_name=?,category=?,description=?,development_status=?,version=?,updated_at=? WHERE id=? AND version=?", item.InternalName, item.FinalBrandName, item.Category, item.Description, item.DevelopmentStatus, item.Version, item.UpdatedAt, id, version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET internal_name=?,final_brand_name=?,company=?,category=?,description=?,development_status=?,version=?,updated_at=? WHERE id=? AND version=?", item.InternalName, item.FinalBrandName, item.Company, item.Category, item.Description, item.DevelopmentStatus, item.Version, item.UpdatedAt, id, version)
 	if err != nil {
 		writeError(w, err)
 		return

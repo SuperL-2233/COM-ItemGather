@@ -33,9 +33,24 @@ func TestIdeaProductWorkflow(t *testing.T) {
 	}
 	products := []Product{}
 	for _, name := range []string{"青苹果汽水", "加速饮料"} {
-		status, data = client.request(t, "POST", "/api/products", map[string]any{"internal_name": name, "development_status": "concept"})
+		status, data = client.request(t, "POST", "/api/products", map[string]any{"internal_name": name, "company": "青苹果公司", "development_status": "concept"})
 		assertStatus(t, status, 201, data)
-		products = append(products, decodeTestJSON[Product](t, data))
+		product := decodeTestJSON[Product](t, data)
+		if product.Company != "青苹果公司" {
+			t.Fatalf("product company was not saved: %+v", product)
+		}
+		products = append(products, product)
+	}
+	status, data = client.request(t, "PATCH", "/api/products/"+products[0].ID, map[string]any{"version": products[0].Version, "company": "新的所属公司"})
+	assertStatus(t, status, 200, data)
+	products[0] = decodeTestJSON[Product](t, data)
+	status, data = client.request(t, "GET", "/api/products?q="+url.QueryEscape("新的所属公司"), nil)
+	assertStatus(t, status, 200, data)
+	companyPage := decodeTestJSON[struct {
+		Total int `json:"total"`
+	}](t, data)
+	if companyPage.Total != 1 {
+		t.Fatalf("product company search returned %d results", companyPage.Total)
 	}
 	for _, product := range products {
 		status, data = client.request(t, "POST", "/api/links", map[string]string{"idea_id": idea.ID, "product_id": product.ID, "status": "candidate"})

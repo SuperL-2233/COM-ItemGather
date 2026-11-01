@@ -1,0 +1,1 @@
+ALTER TABLE products ADD COLUMN company TEXT NOT NULL DEFAULT '';

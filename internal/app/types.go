@@ -89,6 +89,7 @@ type Product struct {
 	ID                string       `json:"id"`
 	InternalName      string       `json:"internal_name"`
 	FinalBrandName    string       `json:"final_brand_name"`
+	Company           string       `json:"company"`
 	Category          string       `json:"category"`
 	Description       string       `json:"description"`
 	Attributes        []Attribute  `json:"attributes"`
