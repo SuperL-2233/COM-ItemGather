@@ -2,6 +2,18 @@ package config
 
 import "testing"
 
+func TestDefaultUploadLimit(t *testing.T) {
+	t.Setenv("MAX_UPLOAD_SIZE", "")
+	t.Setenv("MAX_UPLOAD_MB", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxUploadBytes != 3*1024*1024 {
+		t.Fatalf("default upload limit = %d, want %d", cfg.MaxUploadBytes, 3*1024*1024)
+	}
+}
+
 func TestRetryAndBackgroundIntervals(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{
 		{"AI_MAX_RETRIES", "4"}, {"AI_MAX_RETRIES", "-1"},

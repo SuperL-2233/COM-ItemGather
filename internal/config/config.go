@@ -44,7 +44,7 @@ func Load() (Config, error) {
 	if os.Getenv("SESSION_REMEMBER_DAYS") != "" {
 		rememberTTL = time.Duration(integer("SESSION_REMEMBER_DAYS", 90)) * 24 * time.Hour
 	}
-	maxUpload := int64(integer("MAX_UPLOAD_MB", 10)) * 1024 * 1024
+	maxUpload := int64(integer("MAX_UPLOAD_MB", 3)) * 1024 * 1024
 	if raw := os.Getenv("MAX_UPLOAD_SIZE"); raw != "" {
 		maxUpload = parseByteSize(raw, maxUpload)
 	}

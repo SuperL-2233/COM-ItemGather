@@ -6,4 +6,4 @@ export const aiLabels: Record<string, string> = { idle: '内容已修改，可�
 export const linesToList = (value: string) => value.split(/[\n,，]/).map(item => item.trim()).filter(Boolean)
 export const listToLines = (value: string[]) => value.join('\n')
 export function toast(message: string) { window.dispatchEvent(new CustomEvent('toast', { detail: message })) }
-export const fileSize = (size: number) => size > 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`
+export const fileSize = (size: number) => size > 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MiB` : `${Math.ceil(size / 1024)} KiB`

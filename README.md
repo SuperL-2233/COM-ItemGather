@@ -109,7 +109,7 @@ npm run dev
 | `AI_TIMEOUT` / `AI_MAX_RETRIES` | `60s` / `3`（额外重试） |
 | `AI_WORKER_CONCURRENCY` | `1` |
 | `SESSION_DEFAULT_DAYS` / `SESSION_REMEMBER_DAYS` | `7` / `90` |
-| `MAX_UPLOAD_SIZE` | `10MB` |
+| `MAX_UPLOAD_SIZE` | `3MiB` |
 | `MAX_ATTACHMENTS_PER_IDEA` / `MAX_STORAGE_MB` | `10` / `2048` |
 | `BACKUP_DIR` / `BACKUP_INTERVAL` | `backups` / `24h` |
 | `BACKUP_RETENTION_DAYS` / `BACKUP_KEEP` | `30` 天 / 最多 `10` 份 |
