@@ -5,13 +5,41 @@ import type { Company } from '../types'
 import { companyTitle } from '../utils'
 import { useEvents } from '../events'
 import CompanyCreateDialog from './CompanyCreateDialog.vue'
+import SearchCreateSelect from './SearchCreateSelect.vue'
 const value = defineModel<string>({ required: true })
 const props = defineProps<{ exclude?: string; fallback?: string }>()
-const options = ref<Company[]>([]); const open = ref(false); const query = ref(''); const creating = ref(false); const error = ref('')
-const selected = computed(() => options.value.find(c => c.id === value.value))
-const filtered = computed(() => options.value.filter(c => c.id !== props.exclude && [c.chinese_name,c.english_name,c.aliases].join(' ').toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())))
-async function load() { try { options.value = (await api<{ items: Company[] }>('/companies')).items } catch (e) { error.value = (e as Error).message } }
-function created(company: Company) { options.value = [...options.value.filter(c => c.id !== company.id),company]; value.value = company.id; creating.value = false; open.value = false; query.value = '' }
-onMounted(load); useEvents(load)
+const options = ref<Company[]>([])
+const creating = ref(false)
+const initialName = ref('')
+const error = ref('')
+const loading = ref(true)
+let requestID = 0
+const selector = ref<InstanceType<typeof SearchCreateSelect>>()
+function option(company: Company) {
+  return { value: company.id, label: companyTitle(company), searchText: [company.chinese_name,company.english_name,company.aliases].join(' '), description: company.chinese_name ? company.english_name : '', image: company.attachments[0]?.url }
+}
+const choices = computed(() => options.value.filter(c => c.id !== props.exclude).map(option))
+async function load() {
+  const request = ++requestID
+  try { const result = await api<{ items: Company[] }>('/companies'); if (request !== requestID) return; options.value = result.items; error.value = '' }
+  catch (e) { if (request === requestID) error.value = (e as Error).message }
+  finally { loading.value = false }
+}
+async function create(name: string) {
+  let company = options.value.find(c => c.id !== props.exclude && [c.chinese_name,c.english_name].some(text => text.toLocaleLowerCase() === name.toLocaleLowerCase()))
+  if (!company) company = await api<Company>('/companies',{ method: 'POST', body: JSON.stringify({ chinese_name: name }) })
+  requestID++
+  options.value = [...options.value.filter(c => c.id !== company.id),company]
+  return option(company)
+}
+function created(company: Company) {
+  requestID++
+  options.value = [...options.value.filter(c => c.id !== company.id),company]
+  creating.value = false
+  void selector.value?.select(company.id)
+}
+function details(name: string) { initialName.value = name; creating.value = true }
+onMounted(load)
+useEvents(load)
 </script>
-<template><div class="company-select"><button type="button" class="select-trigger" aria-label="所属公司" :aria-expanded="open" @click="open = !open">{{ selected ? companyTitle(selected) : value ? (fallback || '已选公司') : '未设置公司' }} <span aria-hidden="true">⌄</span></button><div v-if="open" class="choice-panel" @keydown.esc.stop="open = false"><input v-model="query" type="search" aria-label="搜索公司" placeholder="搜索公司中文名、英文名或别名" autofocus @keydown.enter.stop.prevent /><div class="choice-list"><button type="button" class="choice-row" @click="value = ''; open = false">未设置公司</button><button v-for="company in filtered" :key="company.id" type="button" class="choice-row" :aria-pressed="value === company.id" @click="value = company.id; open = false"><img v-if="company.attachments[0]" :src="company.attachments[0].url" alt="" class="company-logo-mini" /><span><strong>{{ companyTitle(company) }}</strong><small v-if="company.chinese_name && company.english_name">{{ company.english_name }}</small></span><span v-if="value === company.id" aria-hidden="true">✓</span></button><p v-if="!filtered.length" class="muted">没有匹配公司。</p></div><button type="button" class="button-link" @click="creating = true">＋ 创建公司</button><p v-if="error" class="error-text">{{ error }}</p></div><CompanyCreateDialog v-if="creating" :initial-name="query" @created="created" @cancel="creating = false" /></div></template>
+<template><div class="company-select"><SearchCreateSelect ref="selector" v-model="value" label="所属公司" search-label="搜索公司" new-label="新公司名称" :options="choices" :create="create" create-label="＋ 创建公司" empty-label="未设置公司" :fallback="fallback" :max-length="160" :loading="loading" :error="error" full-details @details="details" @retry="load" /><CompanyCreateDialog v-if="creating" :initial-name="initialName" @created="created" @cancel="creating = false" /></div></template>

@@ -25,7 +25,7 @@ type productFields struct {
 	Attributes        []Attribute  `json:"attributes"`
 }
 
-const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,p.development_status,p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.brand_name,p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
+const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,COALESCE(p.status_option_id,p.development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),p.development_status),p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.brand_name,p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
 
 func loadProduct(ctx context.Context, q querier, id string, deleted, related bool) (Product, error) {
 	clause := "WHERE p.id=?"
@@ -34,7 +34,7 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	}
 	var item Product
 	var removed, toolJSON string
-	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.BrandName, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount)
+	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.BrandName, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount)
 	if err != nil {
 		return item, ensureNoRows(err)
 	}
@@ -111,10 +111,6 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 	if body.DevelopmentStatus == "" {
 		body.DevelopmentStatus = "concept"
 	}
-	if !validProductStatus(body.DevelopmentStatus) {
-		writeError(w, fail(422, "validation", "制作状态无效"))
-		return
-	}
 	attrs, err := validAttributes(body.Attributes)
 	if err != nil {
 		writeError(w, err)
@@ -133,6 +129,16 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	statusID, legacyStatus, _, err := resolveProductStatus(r.Context(), tx, body.DevelopmentStatus)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	body.Category, err = ensureProductCategory(r.Context(), tx, body.Category)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	companyID, companyName, err := resolveCompany(r.Context(), tx, body.CompanyID, body.Company, user.ID)
 	if err != nil {
 		writeError(w, err)
@@ -146,7 +152,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	_, err = tx.ExecContext(r.Context(), "INSERT INTO products(id,chinese_name,english_name,company,category,description,development_status,created_by,created_at,updated_at,company_id,brand_name,item_kind,use_category,tool_settings_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", id, clean(body.ChineseName, 160), clean(body.EnglishName, 160), companyName, clean(body.Category, 100), body.Description, body.DevelopmentStatus, user.ID, timestamp, timestamp, nullString(companyID), clean(body.BrandName, 160), requestItemKind(r), clean(body.UseCategory, 80), encodeJSON(body.ToolSettings))
+	_, err = tx.ExecContext(r.Context(), "INSERT INTO products(id,chinese_name,english_name,company,category,description,development_status,created_by,created_at,updated_at,company_id,brand_name,item_kind,use_category,tool_settings_json,status_option_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", id, clean(body.ChineseName, 160), clean(body.EnglishName, 160), companyName, clean(body.Category, 100), body.Description, legacyStatus, user.ID, timestamp, timestamp, nullString(companyID), clean(body.BrandName, 160), requestItemKind(r), clean(body.UseCategory, 80), encodeJSON(body.ToolSettings), statusID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -188,7 +194,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) listProductFilters(w http.ResponseWriter, r *http.Request) {
-	result := map[string][]string{"companies": {}, "categories": {}, "attributes": {}}
+	result := map[string]any{"companies": []string{}, "categories": []string{}, "attributes": []string{}}
 	queries := []struct {
 		key   string
 		query string
@@ -221,6 +227,12 @@ func (a *App) listProductFilters(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 		result[item.key] = values
 	}
+	options, err := loadProductOptions(r.Context(), a.db, "statuses")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result["statuses"] = options
 	writeJSON(w, 200, result)
 }
 
@@ -287,12 +299,12 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(statuses) > 0 {
 		for _, status := range statuses {
-			if !validProductStatus(status) {
-				writeError(w, fail(422, "validation", "制作状态无效"))
+			if _, _, _, err := resolveProductStatus(r.Context(), a.db, status); err != nil {
+				writeError(w, err)
 				return
 			}
 		}
-		where += " AND p.development_status IN (" + productFilterPlaceholders(statuses) + ")"
+		where += " AND COALESCE(p.status_option_id,p.development_status) IN (" + productFilterPlaceholders(statuses) + ")"
 		for _, status := range statuses {
 			args = append(args, status)
 		}
@@ -316,7 +328,7 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item Product
 		var removed, toolJSON string
-		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.BrandName, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount); err != nil {
+		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.BrandName, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount); err != nil {
 			rows.Close()
 			writeError(w, err)
 			return
@@ -419,7 +431,11 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Category != nil {
-		item.Category = clean(*body.Category, 100)
+		item.Category, err = ensureProductCategory(r.Context(), tx, *body.Category)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	if body.Description != nil {
 		if len(*body.Description) > 100000 {
@@ -429,10 +445,6 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 		item.Description = *body.Description
 	}
 	if body.DevelopmentStatus != nil {
-		if !validProductStatus(*body.DevelopmentStatus) {
-			writeError(w, fail(422, "validation", "制作状态无效"))
-			return
-		}
 		item.DevelopmentStatus = *body.DevelopmentStatus
 	}
 	if body.Attributes != nil {
@@ -443,9 +455,15 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 		}
 		item.Attributes = attrs
 	}
+	statusID, legacyStatus, statusLabel, err := resolveProductStatus(r.Context(), tx, item.DevelopmentStatus)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	item.DevelopmentStatusLabel = statusLabel
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,brand_name=?,use_category=?,tool_settings_json=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, item.DevelopmentStatus, nullString(item.CompanyID), item.BrandName, item.UseCategory, encodeJSON(item.ToolSettings), item.Version, item.UpdatedAt, id, body.Version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,brand_name=?,use_category=?,tool_settings_json=?,status_option_id=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, legacyStatus, nullString(item.CompanyID), item.BrandName, item.UseCategory, encodeJSON(item.ToolSettings), statusID, item.Version, item.UpdatedAt, id, body.Version)
 	if err != nil {
 		writeError(w, err)
 		return

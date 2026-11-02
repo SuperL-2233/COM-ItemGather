@@ -104,8 +104,9 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 		writeError(w, err)
 		return
 	}
-	if !validProductStatus(data.DevelopmentStatus) {
-		writeError(w, fail(422, "invalid_revision", "历史版本内容无效"))
+	statusID, legacyStatus, _, err := resolveProductStatus(r.Context(), tx, data.DevelopmentStatus)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
 	item.ChineseName = clean(data.ChineseName, 160)
@@ -126,13 +127,17 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	item.BrandName = clean(data.BrandName, 160)
 	item.UseCategory = clean(data.UseCategory, 80)
 	item.ToolSettings = data.ToolSettings
-	item.Category = clean(data.Category, 100)
+	item.Category, err = ensureProductCategory(r.Context(), tx, data.Category)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	item.Description = data.Description
 	item.DevelopmentStatus = data.DevelopmentStatus
 	item.Attributes = attrs
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,brand_name=?,use_category=?,tool_settings_json=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, item.DevelopmentStatus, nullString(item.CompanyID), item.BrandName, item.UseCategory, encodeJSON(item.ToolSettings), item.Version, item.UpdatedAt, id, version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,brand_name=?,use_category=?,tool_settings_json=?,status_option_id=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, legacyStatus, nullString(item.CompanyID), item.BrandName, item.UseCategory, encodeJSON(item.ToolSettings), statusID, item.Version, item.UpdatedAt, id, version)
 	if err != nil {
 		writeError(w, err)
 		return

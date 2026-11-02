@@ -88,28 +88,29 @@ type Idea struct {
 }
 
 type Product struct {
-	ItemKind          string       `json:"item_kind"`
-	CompanyID         string       `json:"company_id"`
-	CompanyDeleted    bool         `json:"company_deleted"`
-	BrandName         string       `json:"brand_name"`
-	UseCategory       string       `json:"use_category"`
-	ToolSettings      ToolSettings `json:"tool_settings"`
-	ID                string       `json:"id"`
-	ChineseName       string       `json:"chinese_name"`
-	EnglishName       string       `json:"english_name"`
-	Company           string       `json:"company"`
-	Category          string       `json:"category"`
-	Description       string       `json:"description"`
-	Attributes        []Attribute  `json:"attributes"`
-	Attachments       []Attachment `json:"attachments"`
-	Links             []Link       `json:"links,omitempty"`
-	DevelopmentStatus string       `json:"development_status"`
-	CreatedBy         string       `json:"created_by"`
-	CreatedAt         string       `json:"created_at"`
-	UpdatedAt         string       `json:"updated_at"`
-	Version           int          `json:"version"`
-	IdeaCount         int          `json:"idea_count"`
-	DeletedAt         string       `json:"deleted_at,omitempty"`
+	DevelopmentStatusLabel string       `json:"development_status_label"`
+	ItemKind               string       `json:"item_kind"`
+	CompanyID              string       `json:"company_id"`
+	CompanyDeleted         bool         `json:"company_deleted"`
+	BrandName              string       `json:"brand_name"`
+	UseCategory            string       `json:"use_category"`
+	ToolSettings           ToolSettings `json:"tool_settings"`
+	ID                     string       `json:"id"`
+	ChineseName            string       `json:"chinese_name"`
+	EnglishName            string       `json:"english_name"`
+	Company                string       `json:"company"`
+	Category               string       `json:"category"`
+	Description            string       `json:"description"`
+	Attributes             []Attribute  `json:"attributes"`
+	Attachments            []Attachment `json:"attachments"`
+	Links                  []Link       `json:"links,omitempty"`
+	DevelopmentStatus      string       `json:"development_status"`
+	CreatedBy              string       `json:"created_by"`
+	CreatedAt              string       `json:"created_at"`
+	UpdatedAt              string       `json:"updated_at"`
+	Version                int          `json:"version"`
+	IdeaCount              int          `json:"idea_count"`
+	DeletedAt              string       `json:"deleted_at,omitempty"`
 }
 
 type Revision struct {

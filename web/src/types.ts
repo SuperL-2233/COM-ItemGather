@@ -8,7 +8,7 @@ export interface Idea {
   author_id: string; author_nickname: string; created_at: string; updated_at: string; version: number; content_version: number
   ai_status: 'idle' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'; ai_error?: string; favorite: boolean; product_count: number; deleted_at?: string
 }
-export interface Product { item_kind: 'product' | 'tool'; company_id: string; company_deleted: boolean; brand_name: string; use_category: string; tool_settings: ToolSettings; id: string; chinese_name: string; english_name: string; company: string; category: string; description: string; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]; development_status: 'concept' | 'design' | 'production' | 'completed'; created_by: string; created_at: string; updated_at: string; version: number; idea_count: number; deleted_at?: string }
+export interface Product { item_kind: 'product' | 'tool'; company_id: string; company_deleted: boolean; brand_name: string; use_category: string; tool_settings: ToolSettings; id: string; chinese_name: string; english_name: string; company: string; category: string; description: string; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]; development_status: string; development_status_label: string; created_by: string; created_at: string; updated_at: string; version: number; idea_count: number; deleted_at?: string }
 export interface Page<T> { items: T[]; total: number; limit: number; offset: number }
 export interface Session { id: string; device_name: string; remember: boolean; created_at: string; last_seen_at: string; expires_at: string; current: boolean }
 export interface Revision { id: string; entity_type: string; entity_id: string; version: number; actor_id?: string; actor_nickname?: string; action: string; before: unknown; after: unknown; created_at: string }
@@ -21,3 +21,7 @@ export interface Ingredient { product_id: string; category: string; quantity: nu
 export interface Recipe { id: string; group_id: string; name: string; output_quantity: number; notes: string; verification: 'untested' | 'verified' | 'invalid'; development_status: Product['development_status']; ingredients: Ingredient[]; version: number; created_by: string; created_at: string; updated_at: string; deleted_at?: string }
 export interface RecipeGroup { id: string; output_id: string; output: Product; recipes: Recipe[]; version: number; created_by: string; created_at: string; updated_at: string; deleted_at?: string }
 export interface SettingLink { id: string; idea_id: string; entity_type: 'company' | 'recipe'; entity_id: string; status: string; title: string; path: string }
+
+export interface ChoiceOption { value: string; label: string }
+
+export interface SearchOption extends ChoiceOption { searchText?: string; description?: string; image?: string }

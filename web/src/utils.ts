@@ -13,3 +13,5 @@ export const itemPath = (item: { id: string; item_kind?: string }) => `/${item.i
 export const companyTitle = (company: { chinese_name: string; english_name: string }) => company.chinese_name || company.english_name || '未命名公司'
 export const emptyToolSettings = () => ({ trigger: '', effect: '', sources: [], cooldown: '', charges: '', consumption: '', duration: '', model_status: '', function_status: '' })
 export const verificationLabels: Record<string, string> = { untested: '待验证', verified: '已验证', invalid: '不可行' }
+
+export const developmentStatusLabel = (item: { development_status: string; development_status_label?: string }) => item.development_status_label || statusLabels[item.development_status] || item.development_status

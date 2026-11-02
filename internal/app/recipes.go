@@ -545,6 +545,13 @@ func (a *App) catalogExport(ctx context.Context, all bool) (map[string]any, erro
 	}
 	result["recipes"] = recipes
 	if all {
+		for _, kind := range []string{"categories", "statuses"} {
+			options, e := loadProductOptions(ctx, a.db, kind)
+			if e != nil {
+				return nil, e
+			}
+			result["product_"+kind] = options
+		}
 		rows, e := a.db.QueryContext(ctx, "SELECT id,idea_id,entity_type,entity_id,status FROM setting_idea_links")
 		if e != nil {
 			return nil, e
