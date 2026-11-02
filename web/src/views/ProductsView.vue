@@ -2,9 +2,9 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ItemCreateDialog from '../components/ItemCreateDialog.vue'
+import ProductCatalogItem from '../components/ProductCatalogItem.vue'
 import { api } from '../api'
 import type { ChoiceOption, Page, Product } from '../types'
-import { productTitle, developmentStatusLabel } from '../utils'
 import { useEvents } from '../events'
 import FilterPopover from '../components/FilterPopover.vue'
 
@@ -12,6 +12,12 @@ interface ProductFilterOptions { companies: string[]; categories: string[]; attr
 
 const route = useRoute()
 const products = ref<Product[]>([]); const total = ref(0); const query = ref(''); const loading = ref(true); const loadingMore = ref(false); const error = ref(''); const showCreate = ref(false);
+const layout = ref<'list' | 'grid'>('list')
+try { if (localStorage.getItem('com-itemgather:product-layout') === 'grid') layout.value = 'grid' } catch { /* Storage may be unavailable. */ }
+function changeLayout(value: 'list' | 'grid') {
+  layout.value = value
+  try { localStorage.setItem('com-itemgather:product-layout', value) } catch { /* Keep the selection for this visit. */ }
+}
 const filterOptions = ref<ProductFilterOptions>({ companies: [], categories: [], attributes: [], statuses: [{value:'concept',label:'构思中'},{value:'design',label:'设计中'},{value:'production',label:'制作中'},{value:'completed',label:'已完成'}] })
 const filters = ref<Record<string, string[]>>({ company: [], category: [], attribute: [], status: [] })
 const filterGroups = computed(() => [
@@ -20,6 +26,13 @@ const filterGroups = computed(() => [
   { key: 'attribute', label: '动态属性分类', allLabel: '全部属性分类', options: filterOptions.value.attributes },
   { key: 'status', label: '制作状态', allLabel: '全部状态', options: filterOptions.value.statuses },
 ])
+const activeFilters = computed(() => filterGroups.value.flatMap(group => filters.value[group.key].map(value => ({
+  key: group.key,
+  value,
+  label: `${group.label}：${group.options.map(option => typeof option === 'string' ? { value: option, label: option } : option).find(option => option.value === value)?.label || value}`,
+}))))
+const hasConditions = computed(() => !!query.value.trim() || activeFilters.value.length > 0 || !!route.query.company_id)
+function removeFilter(key: string, value: string) { filters.value = { ...filters.value, [key]: filters.value[key].filter(item => item !== value) } }
 const loadMoreTrigger = ref<HTMLElement>()
 let observer: IntersectionObserver | undefined
 let requestID = 0
@@ -101,6 +114,67 @@ onUnmounted(() => {
 })
 useEvents(refresh)
 </script>
-<template><section><div class="page-heading"><div><h1>商品库</h1><p>团队已经开始考虑实际制作的具体游戏内商品。</p></div><button class="primary" @click="showCreate = true">创建商品</button></div><p v-if="route.query.company_id" class="muted">正在查看所选公司旗下商品 · <RouterLink to="/products">查看全部公司</RouterLink></p><form class="toolbar" @submit.prevent="searchNow"><input v-model="query" type="search" aria-label="搜索商品" placeholder="搜索名称、公司、分类或描述" /><FilterPopover id="product-filter-popover" v-model="filters" label="商品" :groups="filterGroups" /></form><p v-if="error" class="error-text">{{ error }} <button class="button-link" @click="load(products.length === 0)">重试</button></p><p v-if="loading && !products.length" class="muted">读取中…</p><div v-else-if="products.length" class="product-grid"><article v-for="product in products" :key="product.id" class="product-card"><img v-if="product.attachments.length" class="product-cover" :src="product.attachments[0].thumbnail_url || product.attachments[0].url" alt="" loading="lazy" /><div class="product-card-content"><h2><RouterLink :to="`/products/${product.id}`">{{ productTitle(product) }}</RouterLink></h2><p v-if="product.english_name && product.chinese_name" class="product-english-name">{{ product.english_name }}</p><p v-if="product.company" class="product-company"><RouterLink v-if="product.company_id" :to="`/companies/${product.company_id}`">{{ product.company }}</RouterLink><span v-else>{{ product.company }}</span></p><div class="product-meta"><span v-if="product.category">分类：{{ product.category }}</span><span class="status-badge">{{ developmentStatusLabel(product) }}</span></div></div></article></div><div v-else class="empty-state">还没有商品。可以在这里创建，也可以从一条灵感主动创建。</div><div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div></section>
+<template>
+  <section class="products-page">
+    <div class="page-heading">
+      <div><h1>商品库</h1><p>查看商品设定与制作进度。</p></div>
+      <button class="primary" @click="showCreate = true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>创建商品</button>
+    </div>
+    <p v-if="route.query.company_id" class="muted">正在查看所选公司旗下商品 · <RouterLink to="/products">查看全部公司</RouterLink></p>
+    <form class="toolbar product-toolbar" @submit.prevent="searchNow">
+      <div class="product-search">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
+        <input v-model="query" type="search" aria-label="搜索商品" placeholder="搜索名称、公司、分类或描述" />
+      </div>
+      <FilterPopover id="product-filter-popover" v-model="filters" label="商品" :groups="filterGroups" />
+    </form>
+    <div v-if="activeFilters.length" class="product-active-filters" aria-label="已选筛选条件">
+      <button v-for="filter in activeFilters" :key="`${filter.key}:${filter.value}`" type="button" :aria-label="`移除${filter.label}筛选`" @click="removeFilter(filter.key, filter.value)">{{ filter.label }}<span aria-hidden="true">×</span></button>
+    </div>
+    <div class="product-results-bar">
+      <p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件商品` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p>
+      <div class="product-view-switch" role="group" aria-label="商品展示方式">
+        <button type="button" :aria-pressed="layout === 'list'" @click="changeLayout('list')"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10M3 5h.5M3 10h.5M3 15h.5" /></svg>列表</button>
+        <button type="button" :aria-pressed="layout === 'grid'" @click="changeLayout('grid')"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1" /><rect x="12" y="3" width="5" height="5" rx="1" /><rect x="3" y="12" width="5" height="5" rx="1" /><rect x="12" y="12" width="5" height="5" rx="1" /></svg>卡片</button>
+      </div>
+    </div>
+    <p v-if="error" class="error-text" role="alert">{{ error }} <button class="button-link" @click="load(products.length === 0)">重试</button></p>
+    <p v-if="loading && !products.length" class="muted">读取中…</p>
+    <div v-else-if="products.length" class="product-catalog" :class="`is-${layout}`" :aria-busy="loading">
+      <div v-if="layout === 'list'" class="product-list-header" aria-hidden="true"><span>商品名称</span><span>所属公司</span><span>商品分类</span><span>制作状态</span></div>
+      <ProductCatalogItem v-for="product in products" :key="product.id" :product="product" :layout="layout" />
+    </div>
+    <div v-else class="empty-state">{{ hasConditions ? '没有找到符合条件的商品，试试其他关键词或筛选条件。' : '还没有商品。可以在这里创建，也可以从一条灵感主动创建。' }}</div>
+    <div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div>
+  </section>
   <ItemCreateDialog v-if="showCreate" kind="product" @created="showCreate = false; refresh()" @cancel="showCreate = false" />
 </template>
+
+<style scoped>
+.page-heading .primary{gap:.4rem}
+svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.product-toolbar{flex-wrap:nowrap;gap:.65rem;margin:1.5rem 0 0}
+.product-search{position:relative;flex:1;min-width:0}
+.product-search>svg{position:absolute;left:.85rem;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.product-search>input{max-width:none;padding-left:2.5rem;min-height:2.75rem}
+.product-toolbar :deep(.filter-control){margin-left:0;flex:none}
+.product-toolbar :deep(.filter-button){min-height:2.75rem}
+.product-active-filters{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.75rem}
+.product-active-filters button{display:inline-flex;align-items:center;gap:.55rem;max-width:100%;padding:.35rem .6rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--muted);font-size:.78rem;text-align:left;overflow-wrap:anywhere}
+.product-active-filters button:hover{color:var(--accent);border-color:var(--accent)}
+.product-active-filters button>span{font-size:1rem;flex:none}
+.product-results-bar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;margin:1rem 0 .75rem}
+.product-result-count{margin:0;color:var(--muted);font-size:.82rem;line-height:1.5}
+.product-result-count>span{font-size:.75rem}
+.product-view-switch{display:flex;gap:.2rem;padding:.2rem;border:1px solid var(--border);border-radius:7px;background:var(--surface-soft);flex:none}
+.product-view-switch button{display:flex;align-items:center;gap:.35rem;padding:.35rem .6rem;border-radius:4px;background:transparent;color:var(--muted);font-size:.78rem}
+.product-view-switch button[aria-pressed=true]{background:var(--surface);color:var(--text);box-shadow:0 1px 3px #0001}
+.product-view-switch button:hover{color:var(--text)}
+.product-view-switch svg{width:.95rem;height:.95rem}
+.product-catalog{--catalog-columns:minmax(0,2.3fr) minmax(0,1.2fr) minmax(0,.8fr) minmax(6rem,.8fr);--catalog-gap:1.25rem}
+.product-catalog.is-list{border:1px solid var(--border);border-radius:9px;background:var(--surface)}
+.product-list-header{display:grid;grid-template-columns:var(--catalog-columns);gap:var(--catalog-gap);padding:.8rem 1.1rem;background:var(--surface-soft);border-radius:8px 8px 0 0;color:var(--muted);font-size:.75rem}
+.product-catalog.is-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start}
+@media(max-width:900px){.product-catalog{--catalog-gap:.8rem;--catalog-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,.8fr) minmax(5rem,.8fr)}.product-catalog.is-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.product-list-header{display:none}.product-catalog.is-grid{grid-template-columns:1fr;gap:.75rem}.product-result-count>span{display:block}.product-view-switch button{padding:.35rem .5rem}.product-toolbar{margin-top:1rem}}
+</style>

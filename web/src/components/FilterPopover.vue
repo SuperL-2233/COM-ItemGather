@@ -12,6 +12,8 @@ const popover = ref<HTMLElement>()
 const button = ref<HTMLButtonElement>()
 const count = computed(() => props.groups.filter(group => props.modelValue[group.key]?.length).length)
 const group = computed(() => props.groups.find(item => item.key === active.value) || props.groups[0])
+let touchGesture: { id: number; x: number; y: number; startedAt: number; moved: boolean } | undefined
+let ignoreTouchClick = false
 
 watch(() => props.groups, () => { if (!props.groups.some(item => item.key === active.value)) active.value = props.groups[0]?.key || '' })
 async function toggle() {
@@ -20,14 +22,42 @@ async function toggle() {
 }
 function update(key: string, values: string[]) { emit('update:modelValue', { ...props.modelValue, [key]: values }) }
 function clear() { emit('update:modelValue', Object.fromEntries(Object.keys(props.modelValue).map(key => [key, []]))) }
+function pointerStart(event: PointerEvent) {
+  ignoreTouchClick = false
+  touchGesture = event.pointerType === 'touch' ? { id: event.pointerId, x: event.clientX, y: event.clientY, startedAt: event.timeStamp, moved: false } : undefined
+}
+function pointerMove(event: PointerEvent) {
+  if (touchGesture?.id === event.pointerId && Math.hypot(event.clientX - touchGesture.x, event.clientY - touchGesture.y) > 10) touchGesture.moved = true
+}
+function pointerEnd(event: PointerEvent) {
+  if (touchGesture?.id !== event.pointerId) return
+  ignoreTouchClick = touchGesture.moved || event.timeStamp - touchGesture.startedAt >= 500 || event.type === 'pointercancel'
+  touchGesture = undefined
+}
 function outside(event: MouseEvent) {
+  // A touch scroll or long press can still produce a synthetic click.
+  if (ignoreTouchClick && event.detail > 0) { ignoreTouchClick = false; return }
   if (open.value && control.value && !event.composedPath().includes(control.value)) open.value = false
 }
 function escape(event: KeyboardEvent) {
   if (event.key === 'Escape' && open.value) { event.stopPropagation(); open.value = false; button.value?.focus() }
 }
-onMounted(() => { document.addEventListener('click', outside); document.addEventListener('keydown', escape) })
-onUnmounted(() => { document.removeEventListener('click', outside); document.removeEventListener('keydown', escape) })
+onMounted(() => {
+  document.addEventListener('click', outside)
+  document.addEventListener('keydown', escape)
+  document.addEventListener('pointerdown', pointerStart, { passive: true })
+  document.addEventListener('pointermove', pointerMove, { passive: true })
+  document.addEventListener('pointerup', pointerEnd, { passive: true })
+  document.addEventListener('pointercancel', pointerEnd, { passive: true })
+})
+onUnmounted(() => {
+  document.removeEventListener('click', outside)
+  document.removeEventListener('keydown', escape)
+  document.removeEventListener('pointerdown', pointerStart)
+  document.removeEventListener('pointermove', pointerMove)
+  document.removeEventListener('pointerup', pointerEnd)
+  document.removeEventListener('pointercancel', pointerEnd)
+})
 </script>
 
 <template>

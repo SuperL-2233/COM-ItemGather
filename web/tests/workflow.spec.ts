@@ -304,7 +304,7 @@ test('商品搜索输入即查，连续输入合并请求且等待时保留列�
   await expect(page.getByRole('button', { name: '搜索', exact: true })).toHaveCount(0)
 })
 
-test('商品列表自动加载后续内容，英文名仅用字体样式区分', async ({ page }) => {
+test('商品列表自动加载后续内容，英文名作为次要信息呈现', async ({ page }) => {
   await signIn(page, 'admin', adminPassword)
   const me = await (await page.request.get('/api/auth/me')).json()
   for (let index = 0; index < 31; index++) {
@@ -323,9 +323,9 @@ test('商品列表自动加载后续内容，英文名仅用字体样式区分',
   await page.getByPlaceholder('搜索名称、公司、分类或描述').fill('自动加载验收商品')
   await expect(page.locator('.product-card').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /加载更多/ })).toHaveCount(0)
-  const englishName = page.locator('.product-english-name').filter({ hasText: 'Style Sample' })
+  const englishName = page.locator('.catalog-english').filter({ hasText: 'Style Sample' })
   await expect(englishName).toHaveText('Style Sample')
-  await expect(englishName).toHaveCSS('font-style', 'italic')
+  await expect(englishName).toHaveCSS('font-style', 'normal')
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
   await expect(page.locator('.product-card')).toHaveCount(32)
   await expect(page.locator('.product-card').last()).toContainText('自动加载验收商品 1')
