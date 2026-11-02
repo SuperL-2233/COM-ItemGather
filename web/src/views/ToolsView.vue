@@ -41,6 +41,8 @@ async function loadChoices() {
   try {
     const [uses, states] = await Promise.all([api<{items:string[]}>('/tool-categories'), api<{items:ChoiceOption[]}>('/product-options/statuses')])
     categories.value = uses.items; statuses.value = states.items
+    const active = filters.value.status.filter(value => statuses.value.some(option => option.value === value))
+    if (active.length !== filters.value.status.length) filters.value = { ...filters.value, status: active }
   } catch (cause) { error.value = (cause as Error).message }
 }
 function refresh() { append = false; refreshSearch(); void loadChoices() }

@@ -19,7 +19,8 @@ const props = withDefaults(defineProps<{
   error?: string
   fullDetails?: boolean
   allowRemove?: boolean
-}>(), { allowEmpty: true, emptyLabel: '未设置', maxLength: 100 })
+  removeNoun?: string
+}>(), { allowEmpty: true, emptyLabel: '未设置', maxLength: 100, removeNoun: '分类' })
 const emit = defineEmits<{ details: [name: string]; retry: []; remove: [option: SearchOption] }>()
 const id = useId()
 const root = ref<HTMLElement>()
@@ -200,13 +201,13 @@ defineExpose({ select, focus: () => trigger.value?.focus() })
               <span v-if="value === row.value" aria-hidden="true">✓</span>
             </template>
           </button>
-          <button v-if="allowRemove && row.kind === 'option'" type="button" tabindex="-1" class="choice-remove" :aria-label="`删除分类“${row.label}”`" title="删除分类；也可选中后按 Shift+Delete" :disabled="busy" @click.stop="removeOption(row)">删除</button>
+          <button v-if="allowRemove && row.kind === 'option'" type="button" tabindex="-1" class="choice-remove" :aria-label="`删除${removeNoun}“${row.label}”`" :title="`删除${removeNoun}；也可选中后按 Shift+Delete`" :disabled="busy" @click.stop="removeOption(row)">删除</button>
           </div>
         </template>
         <p v-if="loading" class="muted choice-hint">读取选项中…</p>
         <p v-else-if="!filtered.length" class="muted choice-hint">没有匹配选项，可通过“＋”创建。</p>
       </div>
-      <p v-if="allowRemove && filtered.length" class="muted choice-hint">选中分类后也可按 Shift+Delete 删除。</p>
+      <p v-if="allowRemove && filtered.length" class="muted choice-hint">选中{{ removeNoun }}后也可按 Shift+Delete 删除。</p>
       <p v-if="localError || error" class="error-text choice-hint" role="alert">{{ localError || error }} <button v-if="error" type="button" class="button-link" @click="emit('retry')">重试</button></p>
     </div>
   </div>

@@ -114,6 +114,8 @@ func (a *App) routes() {
 	handle("POST /api/products", a.createProduct, true)
 	handle("GET /api/product-options/categories/usage", a.productCategoryUsage, true)
 	handle("DELETE /api/product-options/categories", a.deleteProductCategory, true)
+	handle("GET /api/product-options/statuses/usage", a.productStatusUsage, true)
+	handle("DELETE /api/product-options/statuses", a.deleteProductStatus, true)
 	handle("GET /api/product-options/{kind}", a.productOptions, true)
 	handle("POST /api/product-options/{kind}", a.productOptions, true)
 	handle("GET /api/products/filters", a.listProductFilters, true)

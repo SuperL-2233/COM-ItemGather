@@ -158,8 +158,8 @@ func limitSearchIDs(ids []string) ([]string, bool) {
 }
 
 func (a *App) searchItems(ctx context.Context, query, like, kind string, authors []string) ([]Product, bool, error) {
-	sql := `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND p.item_kind=? AND (?='' OR p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR p.brand_name LIKE ? ESCAPE '\' OR p.use_category LIKE ? ESCAPE '\' OR p.tool_settings_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND (c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\')) OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\')))`
-	args := []any{kind, query, like, like, like, like, like, like, like, like, like, like, like, like}
+	sql := `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND p.item_kind=? AND (?='' OR p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR p.use_category LIKE ? ESCAPE '\' OR p.tool_settings_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND (c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\')) OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\')))`
+	args := []any{kind, query, like, like, like, like, like, like, like, like, like, like, like}
 	sql, args = searchIn(sql, args, "p.created_by", authors)
 	ids, err := queryIDs(ctx, a.db, sql+" ORDER BY p.updated_at DESC,p.id LIMIT 51", args...)
 	if err != nil {

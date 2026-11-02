@@ -41,19 +41,20 @@ type Ingredient struct {
 	Item      *Product `json:"item,omitempty"`
 }
 type Recipe struct {
-	ID                string       `json:"id"`
-	GroupID           string       `json:"group_id"`
-	Name              string       `json:"name"`
-	OutputQuantity    int          `json:"output_quantity"`
-	Notes             string       `json:"notes"`
-	Verification      string       `json:"verification"`
-	DevelopmentStatus string       `json:"development_status"`
-	Ingredients       []Ingredient `json:"ingredients"`
-	Version           int          `json:"version"`
-	CreatedBy         string       `json:"created_by"`
-	CreatedAt         string       `json:"created_at"`
-	UpdatedAt         string       `json:"updated_at"`
-	DeletedAt         string       `json:"deleted_at,omitempty"`
+	DevelopmentStatusLabel string       `json:"development_status_label"`
+	ID                     string       `json:"id"`
+	GroupID                string       `json:"group_id"`
+	Name                   string       `json:"name"`
+	OutputQuantity         int          `json:"output_quantity"`
+	Notes                  string       `json:"notes"`
+	Verification           string       `json:"verification"`
+	DevelopmentStatus      string       `json:"development_status"`
+	Ingredients            []Ingredient `json:"ingredients"`
+	Version                int          `json:"version"`
+	CreatedBy              string       `json:"created_by"`
+	CreatedAt              string       `json:"created_at"`
+	UpdatedAt              string       `json:"updated_at"`
+	DeletedAt              string       `json:"deleted_at,omitempty"`
 }
 type RecipeGroup struct {
 	RecipeCount *int     `json:"recipe_count,omitempty"`

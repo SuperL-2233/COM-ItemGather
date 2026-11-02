@@ -34,7 +34,7 @@ func loadRecipe(ctx context.Context, q querier, id string, deleted bool) (Recipe
 	if !deleted {
 		where = " AND deleted_at IS NULL"
 	}
-	err := q.QueryRowContext(ctx, `SELECT id,group_id,name,output_quantity,notes,verification,development_status,version,created_by,created_at,updated_at,COALESCE(deleted_at,'') FROM recipes WHERE id=?`+where, id).Scan(&item.ID, &item.GroupID, &item.Name, &item.OutputQuantity, &item.Notes, &item.Verification, &item.DevelopmentStatus, &item.Version, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.DeletedAt)
+	err := q.QueryRowContext(ctx, `SELECT id,group_id,name,output_quantity,notes,verification,COALESCE(status_option_id,development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(recipes.status_option_id,recipes.development_status)),development_status),version,created_by,created_at,updated_at,COALESCE(deleted_at,'') FROM recipes WHERE id=?`+where, id).Scan(&item.ID, &item.GroupID, &item.Name, &item.OutputQuantity, &item.Notes, &item.Verification, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.Version, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.DeletedAt)
 	if err != nil {
 		return item, ensureNoRows(err)
 	}
@@ -242,11 +242,8 @@ func (a *App) saveRecipe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fail(422, "validation", "验证状态无效"))
 		return
 	}
-	if body.DevelopmentStatus == "" {
-		body.DevelopmentStatus = "concept"
-	}
-	if !validProductStatus(body.DevelopmentStatus) || len(body.Notes) > 100000 {
-		writeError(w, fail(422, "validation", "配方状态无效或备注过长"))
+	if len(body.Notes) > 100000 {
+		writeError(w, fail(422, "validation", "配方备注过长"))
 		return
 	}
 	tx, err := a.db.BeginTx(r.Context(), nil)
@@ -294,11 +291,17 @@ func (a *App) saveRecipe(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "/revisions/") {
 		action = "restore_revision"
 	}
+	statusID, legacyStatus, statusLabel, err := resolveProductStatus(r.Context(), tx, body.DevelopmentStatus)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	item.Name = clean(body.Name, 160)
 	item.OutputQuantity = body.OutputQuantity
 	item.Notes = body.Notes
 	item.Verification = body.Verification
-	item.DevelopmentStatus = body.DevelopmentStatus
+	item.DevelopmentStatus = statusID
+	item.DevelopmentStatusLabel = statusLabel
 	item.Ingredients = []Ingredient{}
 	seen := map[string]int{}
 	for _, i := range body.Ingredients {
@@ -334,9 +337,9 @@ func (a *App) saveRecipe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if r.Method == "PATCH" {
-		_, err = tx.ExecContext(r.Context(), "UPDATE recipes SET name=?,output_quantity=?,notes=?,verification=?,development_status=?,version=?,updated_at=? WHERE id=? AND version=?", item.Name, item.OutputQuantity, item.Notes, item.Verification, item.DevelopmentStatus, item.Version, stamp, item.ID, body.Version)
+		_, err = tx.ExecContext(r.Context(), "UPDATE recipes SET name=?,output_quantity=?,notes=?,verification=?,development_status=?,status_option_id=?,version=?,updated_at=? WHERE id=? AND version=?", item.Name, item.OutputQuantity, item.Notes, item.Verification, legacyStatus, statusID, item.Version, stamp, item.ID, body.Version)
 	} else {
-		_, err = tx.ExecContext(r.Context(), "INSERT INTO recipes(id,group_id,name,output_quantity,notes,verification,development_status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", item.ID, groupID, item.Name, item.OutputQuantity, item.Notes, item.Verification, item.DevelopmentStatus, user, stamp, stamp)
+		_, err = tx.ExecContext(r.Context(), "INSERT INTO recipes(id,group_id,name,output_quantity,notes,verification,development_status,status_option_id,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", item.ID, groupID, item.Name, item.OutputQuantity, item.Notes, item.Verification, legacyStatus, statusID, user, stamp, stamp)
 	}
 	if err == nil {
 		err = replaceRecipeIngredients(r.Context(), tx, item.ID, item.Ingredients)

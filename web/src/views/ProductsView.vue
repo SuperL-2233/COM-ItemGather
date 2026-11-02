@@ -161,7 +161,11 @@ function scheduleSearch() {
   searchTimer = setTimeout(searchNow, 250)
 }
 async function loadFilters() {
-  try { filterOptions.value = await api<ProductFilterOptions>('/products/filters') }
+  try {
+    filterOptions.value = await api<ProductFilterOptions>('/products/filters')
+    const active = filters.value.status.filter(value => filterOptions.value.statuses.some(option => option.value === value))
+    if (active.length !== filters.value.status.length) filters.value = { ...filters.value, status: active }
+  }
   catch (e) { error.value = (e as Error).message }
 }
 function refresh() { if (!searchTimer) void load(); void loadFilters() }

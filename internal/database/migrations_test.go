@@ -46,7 +46,7 @@ func TestProductChineseNameMigration(t *testing.T) {
 		}
 	}
 	var legacyColumns int
-	if err = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('products') WHERE name IN ('internal_name','final_brand_name')").Scan(&legacyColumns); err != nil {
+	if err = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('products') WHERE name IN ('internal_name','final_brand_name','brand_name')").Scan(&legacyColumns); err != nil {
 		t.Fatal(err)
 	}
 	if legacyColumns != 0 {

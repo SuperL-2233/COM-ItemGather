@@ -124,7 +124,6 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 		writeError(w, err)
 		return
 	}
-	item.BrandName = clean(data.BrandName, 160)
 	item.UseCategory = clean(data.UseCategory, 80)
 	item.ToolSettings = data.ToolSettings
 	item.Category, err = ensureProductCategory(r.Context(), tx, data.Category)
@@ -137,7 +136,7 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	item.Attributes = attrs
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,brand_name=?,use_category=?,tool_settings_json=?,status_option_id=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, legacyStatus, nullString(item.CompanyID), item.BrandName, item.UseCategory, encodeJSON(item.ToolSettings), statusID, item.Version, item.UpdatedAt, id, version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,use_category=?,tool_settings_json=?,status_option_id=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, legacyStatus, nullString(item.CompanyID), item.UseCategory, encodeJSON(item.ToolSettings), statusID, item.Version, item.UpdatedAt, id, version)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -43,8 +43,16 @@ func ensureProductCategory(ctx context.Context, tx *sql.Tx, name string) (string
 
 func resolveProductStatus(ctx context.Context, q querier, value string) (string, string, string, error) {
 	var id, name string
-	if err := q.QueryRowContext(ctx, "SELECT id,name FROM product_statuses WHERE id=?", value).Scan(&id, &name); err != nil {
+	query := "SELECT id,name FROM product_statuses WHERE deleted_at IS NULL AND (?='' OR id=?) ORDER BY position,created_at,id LIMIT 1"
+	if err := q.QueryRowContext(ctx, query, value, value).Scan(&id, &name); err != nil {
 		if err == sql.ErrNoRows {
+			var deleted int
+			if e := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM product_statuses WHERE id=? AND deleted_at IS NOT NULL", value).Scan(&deleted); e != nil {
+				return "", "", "", e
+			}
+			if deleted > 0 {
+				return "", "", "", fail(409, "status_deleted", "该制作状态已被删除，请重新选择；需要恢复时可显式新建同名状态")
+			}
 			return "", "", "", fail(422, "validation", "制作状态无效，请选择已有状态或先创建新状态")
 		}
 		return "", "", "", err
@@ -59,7 +67,7 @@ func resolveProductStatus(ctx context.Context, q querier, value string) (string,
 func loadProductOptions(ctx context.Context, q querier, kind string) ([]ChoiceOption, error) {
 	query := "SELECT name,name FROM product_categories WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE"
 	if kind == "statuses" {
-		query = "SELECT id,name FROM product_statuses ORDER BY position,created_at,id"
+		query = "SELECT id,name FROM product_statuses WHERE deleted_at IS NULL ORDER BY position,created_at,id"
 	}
 	rows, err := q.QueryContext(ctx, query)
 	if err != nil {
@@ -115,7 +123,10 @@ func (a *App) productOptions(w http.ResponseWriter, r *http.Request) {
 			}
 			item.Label = item.Value
 		} else {
-			_, err = tx.ExecContext(r.Context(), "INSERT OR IGNORE INTO product_statuses(id,name,created_at) VALUES(?,?,?)", security.ID(), name, now())
+			_, err = tx.ExecContext(r.Context(), "UPDATE product_statuses SET deleted_at=NULL,version=version+1 WHERE name=? COLLATE NOCASE AND deleted_at IS NOT NULL", name)
+			if err == nil {
+				_, err = tx.ExecContext(r.Context(), "INSERT OR IGNORE INTO product_statuses(id,name,created_at) VALUES(?,?,?)", security.ID(), name, now())
+			}
 			if err == nil {
 				err = tx.QueryRowContext(r.Context(), "SELECT id,name FROM product_statuses WHERE name=? COLLATE NOCASE", name).Scan(&item.Value, &item.Label)
 			}

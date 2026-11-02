@@ -37,7 +37,7 @@ func TestCompanyIdentitySearchMergeAndHistory(t *testing.T) {
 	env := newTestEnvironment(t, nil)
 	c := newAdminClient(t, env)
 	company := catalogCompany(t, c, "浮泡饮料")
-	item := catalogItem(t, c, "products", "色乐", map[string]any{"company_id": company.ID, "brand_name": "Color"})
+	item := catalogItem(t, c, "products", "色乐", map[string]any{"company_id": company.ID, "english_name": "Color"})
 	legacy := catalogItem(t, c, "products", "范特", map[string]any{"company": "浮泡饮料"})
 	if item.CompanyID != legacy.CompanyID {
 		t.Fatal("legacy name did not resolve to existing company")

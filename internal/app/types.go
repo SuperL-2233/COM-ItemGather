@@ -92,7 +92,6 @@ type Product struct {
 	ItemKind               string       `json:"item_kind"`
 	CompanyID              string       `json:"company_id"`
 	CompanyDeleted         bool         `json:"company_deleted"`
-	BrandName              string       `json:"brand_name"`
 	UseCategory            string       `json:"use_category"`
 	ToolSettings           ToolSettings `json:"tool_settings"`
 	ID                     string       `json:"id"`

@@ -9,18 +9,18 @@ import (
 	"strings"
 )
 
-type categoryReference struct {
+type optionReference struct {
 	ID      string
 	Version int
 }
 type categoryUsage struct {
-	Name        string              `json:"name"`
-	ItemCount   int                 `json:"item_count"`
-	RecipeCount int                 `json:"recipe_count"`
-	Token       string              `json:"token"`
-	Version     int                 `json:"-"`
-	Items       []categoryReference `json:"-"`
-	Recipes     []categoryReference `json:"-"`
+	Name        string            `json:"name"`
+	ItemCount   int               `json:"item_count"`
+	RecipeCount int               `json:"recipe_count"`
+	Token       string            `json:"token"`
+	Version     int               `json:"-"`
+	Items       []optionReference `json:"-"`
+	Recipes     []optionReference `json:"-"`
 }
 
 // Match SQLite's NOCASE semantics: only ASCII letter case is folded.
@@ -42,15 +42,15 @@ func sameCategoryName(a, b string) bool {
 	}
 	return true
 }
-func categoryReferences(ctx context.Context, q querier, query, name string) ([]categoryReference, error) {
+func optionReferences(ctx context.Context, q querier, query, name string) ([]optionReference, error) {
 	rows, err := q.QueryContext(ctx, query, name)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []categoryReference{}
+	items := []optionReference{}
 	for rows.Next() {
-		var item categoryReference
+		var item optionReference
 		if err = rows.Scan(&item.ID, &item.Version); err != nil {
 			return nil, err
 		}
@@ -67,11 +67,11 @@ func loadCategoryUsage(ctx context.Context, q querier, name string) (categoryUsa
 		}
 		return usage, err
 	}
-	usage.Items, err = categoryReferences(ctx, q, "SELECT id,version FROM products WHERE category=? COLLATE NOCASE ORDER BY id", usage.Name)
+	usage.Items, err = optionReferences(ctx, q, "SELECT id,version FROM products WHERE category=? COLLATE NOCASE ORDER BY id", usage.Name)
 	if err != nil {
 		return usage, err
 	}
-	usage.Recipes, err = categoryReferences(ctx, q, "SELECT r.id,r.version FROM recipes r WHERE EXISTS(SELECT 1 FROM recipe_ingredients i WHERE i.recipe_id=r.id AND i.category=? COLLATE NOCASE) ORDER BY r.id", usage.Name)
+	usage.Recipes, err = optionReferences(ctx, q, "SELECT r.id,r.version FROM recipes r WHERE EXISTS(SELECT 1 FROM recipe_ingredients i WHERE i.recipe_id=r.id AND i.category=? COLLATE NOCASE) ORDER BY r.id", usage.Name)
 	if err != nil {
 		return usage, err
 	}
@@ -80,7 +80,7 @@ func loadCategoryUsage(ctx context.Context, q querier, name string) (categoryUsa
 	digest := sha256.Sum256([]byte(encodeJSON(struct {
 		Name           string
 		Version        int
-		Items, Recipes []categoryReference
+		Items, Recipes []optionReference
 	}{usage.Name, usage.Version, usage.Items, usage.Recipes})))
 	usage.Token = hex.EncodeToString(digest[:])
 	return usage, nil
