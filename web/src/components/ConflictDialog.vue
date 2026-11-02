@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 const props = defineProps<{ current: Record<string, any>; submitted: Record<string, any> }>()
 const emit = defineEmits<{ server: []; merge: []; cancel: [] }>()
-const labels: Record<string, string> = { content: '内容', display_title: '标题', summary: '摘要', notes: '备注', chinese_name: '商品中文名', english_name: '商品英文名', company: '所属公司', category: '分类', description: '描述', development_status: '制作状态', tags: '标签', attributes: '属性', name_candidates: '名称候选', idea_types: '灵感类型', product_directions: '商品方向' }
+const labels: Record<string, string> = { content: '内容', display_title: '标题', summary: '摘要', notes: '备注', chinese_name: '中文名', english_name: '英文名', company_id: '所属公司', brand_name: '品牌名', use_category: '使用类别', tool_settings: '道具使用与获得规则', aliases: '别名', name: '配方名称', output_quantity: '产出数量', ingredients: '材料', verification: '验证情况', company: '所属公司', category: '分类', description: '描述', development_status: '制作状态', tags: '标签', attributes: '属性', name_candidates: '名称候选', idea_types: '灵感类型', product_directions: '商品方向' }
 const differences = computed(() => Object.keys(props.submitted).filter(key => !['version', 'client_id'].includes(key) && JSON.stringify(props.current[key]) !== JSON.stringify(props.submitted[key])).map(key => ({ key, label: labels[key] || key, current: props.current[key], submitted: props.submitted[key] })))
 const show = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 </script>

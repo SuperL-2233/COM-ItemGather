@@ -1,7 +1,7 @@
 {
-  "name": "COM 商品创意库",
+  "name": "COM 游戏设定库",
   "short_name": "COM 创意",
-  "description": "随时记录和整理 Call of Mommy 商品灵感",
+  "description": "集中记录 Call of Mommy 灵感、公司、商品、道具和合成配方",
   "lang": "zh-CN",
   "start_url": "/ideas",
   "scope": "/",

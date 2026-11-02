@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,16 +12,20 @@ import (
 )
 
 type productFields struct {
-	ChineseName       string      `json:"chinese_name"`
-	EnglishName       string      `json:"english_name"`
-	Company           string      `json:"company"`
-	Category          string      `json:"category"`
-	Description       string      `json:"description"`
-	DevelopmentStatus string      `json:"development_status"`
-	Attributes        []Attribute `json:"attributes"`
+	CompanyID         string       `json:"company_id"`
+	BrandName         string       `json:"brand_name"`
+	UseCategory       string       `json:"use_category"`
+	ToolSettings      ToolSettings `json:"tool_settings"`
+	ChineseName       string       `json:"chinese_name"`
+	EnglishName       string       `json:"english_name"`
+	Company           string       `json:"company"`
+	Category          string       `json:"category"`
+	Description       string       `json:"description"`
+	DevelopmentStatus string       `json:"development_status"`
+	Attributes        []Attribute  `json:"attributes"`
 }
 
-const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,p.development_status,p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
+const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,p.development_status,p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.brand_name,p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
 
 func loadProduct(ctx context.Context, q querier, id string, deleted, related bool) (Product, error) {
 	clause := "WHERE p.id=?"
@@ -28,12 +33,13 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 		clause += " AND p.deleted_at IS NULL"
 	}
 	var item Product
-	var removed string
-	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.IdeaCount)
+	var removed, toolJSON string
+	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.BrandName, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount)
 	if err != nil {
 		return item, ensureNoRows(err)
 	}
 	item.DeletedAt = removed
+	_ = json.Unmarshal([]byte(toolJSON), &item.ToolSettings)
 	item.Attributes = []Attribute{}
 	item.Attachments = []Attachment{}
 	rows, err := q.QueryContext(ctx, "SELECT id,key,value,certainty FROM product_attributes WHERE product_id=? ORDER BY position,id", id)
@@ -66,7 +72,7 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	return item, nil
 }
 func productSnapshot(item Product) productFields {
-	return productFields{ChineseName: item.ChineseName, EnglishName: item.EnglishName, Company: item.Company, Category: item.Category, Description: item.Description, DevelopmentStatus: item.DevelopmentStatus, Attributes: item.Attributes}
+	return productFields{CompanyID: item.CompanyID, BrandName: item.BrandName, UseCategory: item.UseCategory, ToolSettings: item.ToolSettings, ChineseName: item.ChineseName, EnglishName: item.EnglishName, Company: item.Company, Category: item.Category, Description: item.Description, DevelopmentStatus: item.DevelopmentStatus, Attributes: item.Attributes}
 }
 func validProductStatus(status string) bool {
 	return status == "concept" || status == "design" || status == "production" || status == "completed"
@@ -85,14 +91,18 @@ func replaceProductAttributes(ctx context.Context, tx *sql.Tx, id string, attrs 
 
 func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ChineseName       string      `json:"chinese_name"`
-		EnglishName       string      `json:"english_name"`
-		Company           string      `json:"company"`
-		Category          string      `json:"category"`
-		Description       string      `json:"description"`
-		DevelopmentStatus string      `json:"development_status"`
-		Attributes        []Attribute `json:"attributes"`
-		IdeaID            string      `json:"idea_id"`
+		CompanyID         string       `json:"company_id"`
+		BrandName         string       `json:"brand_name"`
+		UseCategory       string       `json:"use_category"`
+		ToolSettings      ToolSettings `json:"tool_settings"`
+		ChineseName       string       `json:"chinese_name"`
+		EnglishName       string       `json:"english_name"`
+		Company           string       `json:"company"`
+		Category          string       `json:"category"`
+		Description       string       `json:"description"`
+		DevelopmentStatus string       `json:"development_status"`
+		Attributes        []Attribute  `json:"attributes"`
+		IdeaID            string       `json:"idea_id"`
 	}
 	if err := decodeBody(w, r, &body); err != nil {
 		writeError(w, err)
@@ -123,7 +133,20 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(r.Context(), "INSERT INTO products(id,chinese_name,english_name,company,category,description,development_status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", id, clean(body.ChineseName, 160), clean(body.EnglishName, 160), clean(body.Company, 160), clean(body.Category, 100), body.Description, body.DevelopmentStatus, user.ID, timestamp, timestamp)
+	companyID, companyName, err := resolveCompany(r.Context(), tx, body.CompanyID, body.Company, user.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err = validateToolSettings(body.ToolSettings); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err = ensureUseCategory(r.Context(), tx, body.UseCategory); err != nil {
+		writeError(w, err)
+		return
+	}
+	_, err = tx.ExecContext(r.Context(), "INSERT INTO products(id,chinese_name,english_name,company,category,description,development_status,created_by,created_at,updated_at,company_id,brand_name,item_kind,use_category,tool_settings_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", id, clean(body.ChineseName, 160), clean(body.EnglishName, 160), companyName, clean(body.Category, 100), body.Description, body.DevelopmentStatus, user.ID, timestamp, timestamp, nullString(companyID), clean(body.BrandName, 160), requestItemKind(r), clean(body.UseCategory, 80), encodeJSON(body.ToolSettings))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -145,7 +168,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		}
 		a.publish(tx, "link.created", "idea", body.IdeaID)
 	}
-	item := Product{ID: id, ChineseName: clean(body.ChineseName, 160), EnglishName: clean(body.EnglishName, 160), Company: clean(body.Company, 160), Category: clean(body.Category, 100), Description: body.Description, DevelopmentStatus: body.DevelopmentStatus, CreatedBy: user.ID, CreatedAt: timestamp, UpdatedAt: timestamp, Version: 1, Attributes: attrs}
+	item := Product{ID: id, CompanyID: companyID, BrandName: clean(body.BrandName, 160), ItemKind: requestItemKind(r), UseCategory: clean(body.UseCategory, 80), ToolSettings: body.ToolSettings, ChineseName: clean(body.ChineseName, 160), EnglishName: clean(body.EnglishName, 160), Company: companyName, Category: clean(body.Category, 100), Description: body.Description, DevelopmentStatus: body.DevelopmentStatus, CreatedBy: user.ID, CreatedAt: timestamp, UpdatedAt: timestamp, Version: 1, Attributes: attrs}
 	if err = addRevision(r.Context(), tx, "product", id, 1, &user.ID, "create", nil, productSnapshot(item)); err != nil {
 		writeError(w, err)
 		return
@@ -170,9 +193,9 @@ func (a *App) listProductFilters(w http.ResponseWriter, r *http.Request) {
 		key   string
 		query string
 	}{
-		{"companies", "SELECT DISTINCT company FROM products WHERE deleted_at IS NULL AND company<>'' ORDER BY company COLLATE NOCASE"},
-		{"categories", "SELECT DISTINCT category FROM products WHERE deleted_at IS NULL AND category<>'' ORDER BY category COLLATE NOCASE"},
-		{"attributes", "SELECT DISTINCT pa.key FROM product_attributes pa JOIN products p ON p.id=pa.product_id WHERE p.deleted_at IS NULL AND pa.key<>'' ORDER BY pa.key COLLATE NOCASE"},
+		{"companies", "SELECT DISTINCT company FROM products WHERE item_kind='product' AND deleted_at IS NULL AND company<>'' ORDER BY company COLLATE NOCASE"},
+		{"categories", "SELECT DISTINCT category FROM products WHERE item_kind='product' AND deleted_at IS NULL AND category<>'' ORDER BY category COLLATE NOCASE"},
+		{"attributes", "SELECT DISTINCT pa.key FROM product_attributes pa JOIN products p ON p.id=pa.product_id WHERE p.item_kind='product' AND p.deleted_at IS NULL AND pa.key<>'' ORDER BY pa.key COLLATE NOCASE"},
 	}
 	for _, item := range queries {
 		rows, err := a.db.QueryContext(r.Context(), item.query)
@@ -230,8 +253,20 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
-	where := "p.deleted_at IS NULL"
-	args := []any{}
+	where := "p.deleted_at IS NULL AND p.item_kind=?"
+	args := []any{requestItemKind(r)}
+	if companyID := parameters.Get("company_id"); companyID != "" {
+		where += " AND p.company_id=?"
+		args = append(args, companyID)
+	}
+	if source := parameters.Get("source"); source != "" {
+		where += " AND EXISTS(SELECT 1 FROM json_each(p.tool_settings_json,'$.sources') s WHERE json_extract(s.value,'$.method')=?)"
+		args = append(args, source)
+	}
+	if use := parameters.Get("use_category"); use != "" {
+		where += " AND p.use_category=? COLLATE NOCASE"
+		args = append(args, use)
+	}
 	if len(companies) > 0 {
 		where += " AND p.company IN (" + productFilterPlaceholders(companies) + ")"
 		for _, company := range companies {
@@ -264,8 +299,8 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	if query != "" {
 		like := "%" + escapeLike(query) + "%"
-		where += ` AND (p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes pa WHERE pa.product_id=p.id AND (pa.key LIKE ? ESCAPE '\' OR pa.value LIKE ? ESCAPE '\')))`
-		for i := 0; i < 7; i++ {
+		where += ` AND (p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR p.brand_name LIKE ? ESCAPE '\' OR p.use_category LIKE ? ESCAPE '\' OR p.tool_settings_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND (c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\')) OR EXISTS(SELECT 1 FROM product_attributes pa WHERE pa.product_id=p.id AND (pa.key LIKE ? ESCAPE '\' OR pa.value LIKE ? ESCAPE '\')))`
+		for i := 0; i < 12; i++ {
 			args = append(args, like)
 		}
 	}
@@ -280,13 +315,14 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	items := []Product{}
 	for rows.Next() {
 		var item Product
-		var removed string
-		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.IdeaCount); err != nil {
+		var removed, toolJSON string
+		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.BrandName, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount); err != nil {
 			rows.Close()
 			writeError(w, err)
 			return
 		}
 		item.Attachments = []Attachment{}
+		_ = json.Unmarshal([]byte(toolJSON), &item.ToolSettings)
 		items = append(items, item)
 	}
 	rows.Close()
@@ -310,14 +346,18 @@ func (a *App) getProduct(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Version           int          `json:"version"`
-		ChineseName       *string      `json:"chinese_name"`
-		EnglishName       *string      `json:"english_name"`
-		Company           *string      `json:"company"`
-		Category          *string      `json:"category"`
-		Description       *string      `json:"description"`
-		DevelopmentStatus *string      `json:"development_status"`
-		Attributes        *[]Attribute `json:"attributes"`
+		Version           int           `json:"version"`
+		CompanyID         *string       `json:"company_id"`
+		BrandName         *string       `json:"brand_name"`
+		UseCategory       *string       `json:"use_category"`
+		ToolSettings      *ToolSettings `json:"tool_settings"`
+		ChineseName       *string       `json:"chinese_name"`
+		EnglishName       *string       `json:"english_name"`
+		Company           *string       `json:"company"`
+		Category          *string       `json:"category"`
+		Description       *string       `json:"description"`
+		DevelopmentStatus *string       `json:"development_status"`
+		Attributes        *[]Attribute  `json:"attributes"`
 	}
 	if err := decodeBody(w, r, &body); err != nil {
 		writeError(w, err)
@@ -347,9 +387,37 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	if body.EnglishName != nil {
 		item.EnglishName = clean(*body.EnglishName, 160)
 	}
-	if body.Company != nil {
-		item.Company = clean(*body.Company, 160)
+	if body.CompanyID != nil || body.Company != nil {
+		companyID, companyName := "", ""
+		if body.CompanyID != nil {
+			companyID = *body.CompanyID
+		} else if body.Company != nil {
+			companyName = *body.Company
+		}
+		item.CompanyID, item.Company, err = resolveCompany(r.Context(), tx, companyID, companyName, user.ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 	}
+	if body.BrandName != nil {
+		item.BrandName = clean(*body.BrandName, 160)
+	}
+	if body.UseCategory != nil {
+		if err = ensureUseCategory(r.Context(), tx, *body.UseCategory); err != nil {
+			writeError(w, err)
+			return
+		}
+		item.UseCategory = clean(*body.UseCategory, 80)
+	}
+	if body.ToolSettings != nil {
+		if err = validateToolSettings(*body.ToolSettings); err != nil {
+			writeError(w, err)
+			return
+		}
+		item.ToolSettings = *body.ToolSettings
+	}
+
 	if body.Category != nil {
 		item.Category = clean(*body.Category, 100)
 	}
@@ -377,7 +445,7 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, item.DevelopmentStatus, item.Version, item.UpdatedAt, id, body.Version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,brand_name=?,use_category=?,tool_settings_json=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, item.DevelopmentStatus, nullString(item.CompanyID), item.BrandName, item.UseCategory, encodeJSON(item.ToolSettings), item.Version, item.UpdatedAt, id, body.Version)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -511,6 +579,16 @@ func (a *App) permanentDeleteProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	var references int
+	if err = tx.QueryRowContext(r.Context(), "SELECT (SELECT COUNT(*) FROM recipe_groups WHERE output_id=?)+(SELECT COUNT(*) FROM recipe_ingredients WHERE product_id=?)", id, id).Scan(&references); err != nil {
+		writeError(w, err)
+		return
+	}
+	if references > 0 {
+		writeError(w, fail(409, "item_in_use", "该物品仍被合成配方引用，请先移除引用；也可以保留在回收站"))
+		return
+	}
+
 	result, err := tx.ExecContext(r.Context(), "DELETE FROM products WHERE id=? AND version=? AND deleted_at IS NOT NULL", id, body.Version)
 	if err == nil {
 		count, _ := result.RowsAffected()

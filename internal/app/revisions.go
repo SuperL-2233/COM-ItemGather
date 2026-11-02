@@ -110,14 +110,29 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	}
 	item.ChineseName = clean(data.ChineseName, 160)
 	item.EnglishName = clean(data.EnglishName, 160)
-	item.Company = clean(data.Company, 160)
+	item.CompanyID, item.Company, err = resolveCompany(r.Context(), tx, data.CompanyID, data.Company, user.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err = validateToolSettings(data.ToolSettings); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err = ensureUseCategory(r.Context(), tx, data.UseCategory); err != nil {
+		writeError(w, err)
+		return
+	}
+	item.BrandName = clean(data.BrandName, 160)
+	item.UseCategory = clean(data.UseCategory, 80)
+	item.ToolSettings = data.ToolSettings
 	item.Category = clean(data.Category, 100)
 	item.Description = data.Description
 	item.DevelopmentStatus = data.DevelopmentStatus
 	item.Attributes = attrs
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, item.DevelopmentStatus, item.Version, item.UpdatedAt, id, version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,brand_name=?,use_category=?,tool_settings_json=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, item.DevelopmentStatus, nullString(item.CompanyID), item.BrandName, item.UseCategory, encodeJSON(item.ToolSettings), item.Version, item.UpdatedAt, id, version)
 	if err != nil {
 		writeError(w, err)
 		return

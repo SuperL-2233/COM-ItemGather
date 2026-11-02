@@ -22,7 +22,7 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 	if kind == "" {
 		kind = "all"
 	}
-	if len([]rune(query)) > 200 || (kind != "all" && kind != "ideas" && kind != "products") {
+	if len([]rune(query)) > 200 || (kind != "all" && kind != "ideas" && kind != "products" && kind != "tools" && kind != "companies" && kind != "recipes") {
 		writeError(w, fail(422, "validation", "搜索条件无效"))
 		return
 	}
@@ -44,12 +44,15 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 	creatorRows.Close()
 	ideas := []Idea{}
 	products := []Product{}
+	tools := []Product{}
+	companies := []Company{}
+	groups := []RecipeGroup{}
 	if query == "" && ideaType == "" && direction == "" && author == "" {
-		writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "creators": creators})
+		writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "tools": tools, "companies": companies, "recipes": groups, "creators": creators})
 		return
 	}
 	like := "%" + escapeLike(query) + "%"
-	if kind != "products" {
+	if kind == "all" || kind == "ideas" {
 		sql := `SELECT i.id FROM ideas i WHERE i.deleted_at IS NULL AND (?='' OR i.original_content LIKE ? ESCAPE '\' OR i.content LIKE ? ESCAPE '\' OR i.display_title LIKE ? ESCAPE '\' OR i.summary LIKE ? ESCAPE '\' OR i.name_candidates_json LIKE ? ESCAPE '\' OR i.tags_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM idea_attributes a WHERE a.idea_id=i.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\')))`
 		arguments := []any{query, like, like, like, like, like, like, like, like}
 		if ideaType != "" {
@@ -94,8 +97,12 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 			ideas = append(ideas, item)
 		}
 	}
-	if kind != "ideas" && ideaType == "" && direction == "" {
-		productRows, queryErr := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (?='' OR p.created_by=?) AND (?='' OR p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, author, author, query, like, like, like, like, like, like, like)
+	if (kind == "all" || kind == "products" || kind == "tools") && ideaType == "" && direction == "" {
+		itemKind := "product"
+		if kind == "tools" {
+			itemKind = "tool"
+		}
+		productRows, queryErr := a.db.QueryContext(r.Context(), `SELECT p.id FROM products p WHERE p.deleted_at IS NULL AND (?='all' OR p.item_kind=?) AND (?='' OR p.created_by=?) AND (?='' OR p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR p.brand_name LIKE ? ESCAPE '\' OR p.use_category LIKE ? ESCAPE '\' OR p.tool_settings_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND (c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\')) OR EXISTS(SELECT 1 FROM product_attributes a WHERE a.product_id=p.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\'))) ORDER BY p.updated_at DESC LIMIT 50`, kind, itemKind, author, author, query, like, like, like, like, like, like, like, like, like, like, like, like)
 		if queryErr != nil {
 			writeError(w, queryErr)
 			return
@@ -122,10 +129,28 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 				writeError(w, loadErr)
 				return
 			}
-			products = append(products, item)
+			if item.ItemKind == "tool" {
+				if kind != "products" {
+					tools = append(tools, item)
+				}
+			} else if kind != "tools" {
+				products = append(products, item)
+			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "creators": creators})
+	if ideaType == "" && direction == "" {
+		if kind == "all" || kind == "companies" {
+			companies, err = listCompaniesData(r.Context(), a.db, query, author, false)
+		}
+		if err == nil && (kind == "all" || kind == "recipes") {
+			groups, err = listRecipeGroupsData(r.Context(), a.db, query, author, "", false)
+		}
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "tools": tools, "companies": companies, "recipes": groups, "creators": creators})
 }
 
 func (a *App) listTrash(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +192,24 @@ func (a *App) listTrash(w http.ResponseWriter, r *http.Request) {
 			products = append(products, item)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products})
+	extra, err := a.catalogExport(r.Context(), false)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	tools := []Product{}
+	onlyProducts := []Product{}
+	for _, p := range products {
+		if p.ItemKind == "tool" {
+			tools = append(tools, p)
+		} else {
+			onlyProducts = append(onlyProducts, p)
+		}
+	}
+	extra["ideas"] = ideas
+	extra["products"] = onlyProducts
+	extra["tools"] = tools
+	writeJSON(w, 200, extra)
 }
 
 func (a *App) listTags(w http.ResponseWriter, r *http.Request) {
@@ -368,8 +410,30 @@ func (a *App) exportData(w http.ResponseWriter, r *http.Request) {
 		linkRows.Scan(&link.ID, &link.IdeaID, &link.ProductID, &link.Status, &link.CreatedAt, &link.UpdatedAt)
 		links = append(links, link)
 	}
+	linkRows.Close()
+	extra, err := a.catalogExport(r.Context(), true)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="com-itemgather-%s.json"`, time.Now().UTC().Format("20060102")))
-	writeJSON(w, 200, map[string]any{"format_version": 1, "exported_at": now(), "ideas": ideas, "products": products, "links": links, "attachments_note": "附件原件包含在服务器备份归档中。"})
+	tools := []Product{}
+	onlyProducts := []Product{}
+	for _, p := range products {
+		if p.ItemKind == "tool" {
+			tools = append(tools, p)
+		} else {
+			onlyProducts = append(onlyProducts, p)
+		}
+	}
+	extra["format_version"] = 2
+	extra["exported_at"] = now()
+	extra["ideas"] = ideas
+	extra["products"] = onlyProducts
+	extra["tools"] = tools
+	extra["links"] = links
+	extra["attachments_note"] = "附件原件包含在服务器备份归档中。"
+	writeJSON(w, 200, extra)
 }
 func (a *App) manualBackup(w http.ResponseWriter, r *http.Request) {
 	if err := a.requireAdmin(r); err != nil {

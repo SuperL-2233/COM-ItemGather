@@ -37,6 +37,7 @@ type Attachment struct {
 	ID           string `json:"id"`
 	IdeaID       string `json:"idea_id,omitempty"`
 	ProductID    string `json:"product_id,omitempty"`
+	CompanyID    string `json:"company_id,omitempty"`
 	OriginalName string `json:"original_name"`
 	MimeType     string `json:"mime_type"`
 	Size         int64  `json:"size"`
@@ -46,6 +47,7 @@ type Attachment struct {
 }
 
 type Link struct {
+	ItemKind    string `json:"item_kind,omitempty"`
 	ID          string `json:"id"`
 	IdeaID      string `json:"idea_id"`
 	ProductID   string `json:"product_id"`
@@ -86,6 +88,12 @@ type Idea struct {
 }
 
 type Product struct {
+	ItemKind          string       `json:"item_kind"`
+	CompanyID         string       `json:"company_id"`
+	CompanyDeleted    bool         `json:"company_deleted"`
+	BrandName         string       `json:"brand_name"`
+	UseCategory       string       `json:"use_category"`
+	ToolSettings      ToolSettings `json:"tool_settings"`
 	ID                string       `json:"id"`
 	ChineseName       string       `json:"chinese_name"`
 	EnglishName       string       `json:"english_name"`

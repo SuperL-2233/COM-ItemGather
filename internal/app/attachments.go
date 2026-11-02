@@ -29,15 +29,24 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	defer r.MultipartForm.RemoveAll()
 	ideaID := r.FormValue("idea_id")
 	productID := r.FormValue("product_id")
-	if (ideaID == "") == (productID == "") {
-		writeError(w, fail(422, "validation", "必须且只能指定一条灵感或一个商品"))
+	companyID := r.FormValue("company_id")
+	kind, parentID := "", ""
+	for k, id := range map[string]string{"idea": ideaID, "product": productID, "company": companyID} {
+		if id != "" {
+			if parentID != "" {
+				writeError(w, fail(422, "validation", "必须且只能指定一条记录"))
+				return
+			}
+			kind, parentID = k, id
+		}
+	}
+	if parentID == "" {
+		writeError(w, fail(422, "validation", "请选择要添加附件的记录"))
 		return
 	}
-	kind := "idea"
-	parentID := ideaID
-	if productID != "" {
-		kind = "product"
-		parentID = productID
+	maxBytes := a.cfg.MaxUploadBytes
+	if kind == "company" && maxBytes > 3*1024*1024 {
+		maxBytes = 3 * 1024 * 1024
 	}
 	unlock, err := a.lockAttachments(r.Context())
 	if err != nil {
@@ -53,9 +62,9 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	if clientID != "" {
 		var existing Attachment
 		var thumbnail bool
-		err := a.db.QueryRowContext(r.Context(), `SELECT id,COALESCE(idea_id,''),COALESCE(product_id,''),original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE uploader_id=? AND client_id=?`, currentUser(r).ID, clientID).Scan(&existing.ID, &existing.IdeaID, &existing.ProductID, &existing.OriginalName, &existing.MimeType, &existing.Size, &thumbnail, &existing.CreatedAt)
+		err := a.db.QueryRowContext(r.Context(), `SELECT id,COALESCE(idea_id,''),COALESCE(product_id,''),COALESCE(company_id,''),original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE uploader_id=? AND client_id=?`, currentUser(r).ID, clientID).Scan(&existing.ID, &existing.IdeaID, &existing.ProductID, &existing.CompanyID, &existing.OriginalName, &existing.MimeType, &existing.Size, &thumbnail, &existing.CreatedAt)
 		if err == nil {
-			if existing.IdeaID != ideaID || existing.ProductID != productID {
+			if existing.IdeaID != ideaID || existing.ProductID != productID || existing.CompanyID != companyID {
 				writeError(w, fail(409, "idempotency_conflict", "附件提交标识已用于另一条记录"))
 				return
 			}
@@ -73,15 +82,29 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	var count int
 	a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM attachments WHERE "+kind+"_id=?", parentID).Scan(&count)
-	if count >= a.cfg.MaxAttachments {
+	if kind != "company" && count >= a.cfg.MaxAttachments {
 		writeError(w, fail(422, "attachment_limit", "附件数量已达到上限"))
 		return
 	}
 	var parentCount int
-	a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM "+kind+"s WHERE id=? AND deleted_at IS NULL", parentID).Scan(&parentCount)
+	a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM "+map[string]string{"company": "companies", "idea": "ideas", "product": "products"}[kind]+" WHERE id=? AND deleted_at IS NULL", parentID).Scan(&parentCount)
 	if parentCount != 1 {
 		writeError(w, fail(404, "not_found", "要添加附件的记录不存在"))
 		return
+	}
+	var oldLogoID string
+	var oldLogoSize int64
+	oldPaths := []string{}
+	if kind == "company" {
+		if err = a.db.QueryRowContext(r.Context(), "SELECT id,size FROM attachments WHERE company_id=?", parentID).Scan(&oldLogoID, &oldLogoSize); err != nil && err != sql.ErrNoRows {
+			writeError(w, err)
+			return
+		}
+		if oldLogoID != r.FormValue("replace_id") {
+			writeError(w, fail(409, "logo_changed", "公司 Logo 已变化，请刷新后再更换"))
+			return
+		}
+		oldPaths = a.attachmentPaths(r.Context(), a.db, "company", parentID)
 	}
 	var used int64
 	a.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(size),0) FROM attachments").Scan(&used)
@@ -91,16 +114,16 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, a.cfg.MaxUploadBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if int64(len(data)) > a.cfg.MaxUploadBytes {
+	if int64(len(data)) > maxBytes {
 		writeError(w, fail(413, "upload_too_large", "图片超过大小限制"))
 		return
 	}
-	if len(data) == 0 || used+int64(len(data)) > a.cfg.MaxStorageBytes {
+	if len(data) == 0 || used-oldLogoSize+int64(len(data)) > a.cfg.MaxStorageBytes {
 		writeError(w, fail(413, "storage_limit", "存储空间不足或文件为空"))
 		return
 	}
@@ -151,20 +174,38 @@ func (a *App) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	if originalName == "" {
 		originalName = "image" + extension
 	}
-	var ideaValue, productValue any
+	var ideaValue, productValue, companyValue any
 	if ideaID != "" {
 		ideaValue = ideaID
-	} else {
+	} else if productID != "" {
 		productValue = productID
+	} else {
+		companyValue = companyID
 	}
-	_, err = a.db.ExecContext(r.Context(), "INSERT INTO attachments(id,client_id,idea_id,product_id,uploader_id,original_name,mime_type,size,file_path,thumbnail_path,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", id, nullString(clientID), ideaValue, productValue, currentUser(r).ID, originalName, mimeType, len(data), filename, nullString(thumbnail), timestamp)
+	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		removeFiles([]string{path, thumbnailPath})
 		writeError(w, err)
 		return
 	}
+	defer tx.Rollback()
+	if oldLogoID != "" {
+		_, err = tx.ExecContext(r.Context(), "DELETE FROM attachments WHERE id=?", oldLogoID)
+	}
+	if err == nil {
+		_, err = tx.ExecContext(r.Context(), "INSERT INTO attachments(id,client_id,idea_id,product_id,company_id,uploader_id,original_name,mime_type,size,file_path,thumbnail_path,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", id, nullString(clientID), ideaValue, productValue, companyValue, currentUser(r).ID, originalName, mimeType, len(data), filename, nullString(thumbnail), timestamp)
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		removeFiles([]string{path, thumbnailPath})
+		writeError(w, err)
+		return
+	}
+	removeFiles(oldPaths)
 	a.emit("attachment.changed", "attachment", "")
-	attachment := Attachment{ID: id, IdeaID: ideaID, ProductID: productID, OriginalName: originalName, MimeType: mimeType, Size: int64(len(data)), URL: "/api/attachments/" + id, CreatedAt: timestamp}
+	attachment := Attachment{ID: id, IdeaID: ideaID, ProductID: productID, CompanyID: companyID, OriginalName: originalName, MimeType: mimeType, Size: int64(len(data)), URL: "/api/attachments/" + id, CreatedAt: timestamp}
 	if thumbnail != "" {
 		attachment.ThumbnailURL = attachment.URL + "?thumbnail=1"
 	}
@@ -283,8 +324,10 @@ func loadAttachments(ctx context.Context, q querier, kind, id string, limit int)
 	column := "idea_id"
 	if kind == "product" {
 		column = "product_id"
+	} else if kind == "company" {
+		column = "company_id"
 	}
-	rows, err := q.QueryContext(ctx, "SELECT id,COALESCE(idea_id,''),COALESCE(product_id,''),original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE "+column+"=? ORDER BY created_at,id LIMIT ?", id, limit)
+	rows, err := q.QueryContext(ctx, "SELECT id,COALESCE(idea_id,''),COALESCE(product_id,''),COALESCE(company_id,''),original_name,mime_type,size,thumbnail_path IS NOT NULL,created_at FROM attachments WHERE "+column+"=? ORDER BY created_at,id LIMIT ?", id, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +336,7 @@ func loadAttachments(ctx context.Context, q querier, kind, id string, limit int)
 	for rows.Next() {
 		var item Attachment
 		var thumbnail bool
-		if err := rows.Scan(&item.ID, &item.IdeaID, &item.ProductID, &item.OriginalName, &item.MimeType, &item.Size, &thumbnail, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.IdeaID, &item.ProductID, &item.CompanyID, &item.OriginalName, &item.MimeType, &item.Size, &thumbnail, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		item.URL = "/api/attachments/" + item.ID
