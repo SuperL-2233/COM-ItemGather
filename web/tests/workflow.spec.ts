@@ -299,6 +299,51 @@ test('商品列表自动加载后续内容，英文名仅用字体样式区分',
   await expect(page.locator('.product-card').last()).toContainText('自动加载验收商品 1')
 })
 
+test('商品可以按公司、分类、动态属性和制作状态组合筛选', async ({ page }) => {
+  await signIn(page, 'admin', adminPassword)
+  const me = await (await page.request.get('/api/auth/me')).json()
+  const fixtures = [
+    { chinese_name: '筛选器目标商品', company: '筛选器公司', category: '筛选器分类', development_status: 'design', attributes: [{ key: '筛选器属性', value: '酸甜', certainty: 'asserted' }] },
+    { chinese_name: '筛选器对照商品', company: '对照公司', category: '对照分类', development_status: 'production', attributes: [{ key: '包装', value: '瓶装', certainty: 'asserted' }] },
+  ]
+  for (const data of fixtures) {
+    const created = await page.request.post('/api/products', { headers: { 'X-CSRF-Token': me.csrf_token }, data })
+    expect(created.status()).toBe(201)
+  }
+  await page.goto('/products')
+  await page.getByPlaceholder('搜索名称、公司、分类或描述').fill('筛选器')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page.locator('.product-card')).toHaveCount(2)
+
+  const company = page.getByLabel('所属公司', { exact: true })
+  const category = page.getByLabel('商品分类', { exact: true })
+  const attribute = page.getByLabel('动态属性分类', { exact: true })
+  const status = page.getByLabel('制作状态', { exact: true })
+  await expect(company.locator('option', { hasText: '筛选器公司' })).toHaveCount(1)
+  await expect(category.locator('option', { hasText: '筛选器分类' })).toHaveCount(1)
+  await expect(attribute.locator('option', { hasText: '筛选器属性' })).toHaveCount(1)
+
+  const cards = page.locator('.product-card')
+  await company.selectOption('筛选器公司')
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('筛选器目标商品')
+  await company.selectOption('')
+  await expect(cards).toHaveCount(2)
+  await category.selectOption('筛选器分类')
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('筛选器目标商品')
+  await category.selectOption('')
+  await expect(cards).toHaveCount(2)
+  await attribute.selectOption('筛选器属性')
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('筛选器目标商品')
+  await attribute.selectOption('')
+  await expect(cards).toHaveCount(2)
+  await status.selectOption('design')
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('筛选器目标商品')
+})
+
 test('商品搜索可以按创建者筛选', async ({ page, browser }) => {
   await signIn(page, 'admin', adminPassword)
   const second = await secondBrowser(browser)

@@ -164,8 +164,48 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, item)
 }
 
+func (a *App) listProductFilters(w http.ResponseWriter, r *http.Request) {
+	result := map[string][]string{"companies": {}, "categories": {}, "attributes": {}}
+	queries := []struct {
+		key   string
+		query string
+	}{
+		{"companies", "SELECT DISTINCT company FROM products WHERE deleted_at IS NULL AND company<>'' ORDER BY company COLLATE NOCASE"},
+		{"categories", "SELECT DISTINCT category FROM products WHERE deleted_at IS NULL AND category<>'' ORDER BY category COLLATE NOCASE"},
+		{"attributes", "SELECT DISTINCT pa.key FROM product_attributes pa JOIN products p ON p.id=pa.product_id WHERE p.deleted_at IS NULL AND pa.key<>'' ORDER BY pa.key COLLATE NOCASE"},
+	}
+	for _, item := range queries {
+		rows, err := a.db.QueryContext(r.Context(), item.query)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		values := []string{}
+		for rows.Next() {
+			var value string
+			if err = rows.Scan(&value); err != nil {
+				rows.Close()
+				writeError(w, err)
+				return
+			}
+			values = append(values, value)
+		}
+		if err = rows.Err(); err != nil {
+			rows.Close()
+			writeError(w, err)
+			return
+		}
+		rows.Close()
+		result[item.key] = values
+	}
+	writeJSON(w, 200, result)
+}
+
 func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	company := strings.TrimSpace(r.URL.Query().Get("company"))
+	category := strings.TrimSpace(r.URL.Query().Get("category"))
+	attribute := strings.TrimSpace(r.URL.Query().Get("attribute"))
 	status := r.URL.Query().Get("status")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
@@ -177,6 +217,18 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	where := "p.deleted_at IS NULL"
 	args := []any{}
+	if company != "" {
+		where += " AND p.company=?"
+		args = append(args, company)
+	}
+	if category != "" {
+		where += " AND p.category=?"
+		args = append(args, category)
+	}
+	if attribute != "" {
+		where += " AND EXISTS(SELECT 1 FROM product_attributes pf WHERE pf.product_id=p.id AND pf.key=?)"
+		args = append(args, attribute)
+	}
 	if status != "" {
 		if !validProductStatus(status) {
 			writeError(w, fail(422, "validation", "制作状态无效"))
