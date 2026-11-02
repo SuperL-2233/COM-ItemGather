@@ -335,10 +335,21 @@ test('商品可以通过漏斗覆层搜索选项并组合筛选', async ({ page 
   await expect(popover.getByText('没有匹配选项', { exact: true })).toHaveCount(1)
   await companySearch.fill('筛选器公司')
   await expect(popover.getByRole('button', { name: '对照公司', exact: true })).toHaveCount(0)
-  await popover.getByRole('button', { name: '筛选器公司', exact: true }).click()
+  const targetCompany = popover.getByRole('button', { name: '筛选器公司', exact: true })
+  await targetCompany.click()
   await expect(cards).toHaveCount(1)
   await expect(cards).toContainText('筛选器目标商品')
   await expect(funnel.locator('.filter-count')).toHaveText('1')
+  await companySearch.fill('')
+  const otherCompany = popover.getByRole('button', { name: '对照公司', exact: true })
+  await otherCompany.click()
+  await expect(cards).toHaveCount(2)
+  await expect(targetCompany).toHaveAttribute('aria-pressed', 'true')
+  await expect(otherCompany).toHaveAttribute('aria-pressed', 'true')
+  await expect(funnel.locator('.filter-count')).toHaveText('1')
+  await otherCompany.click()
+  await expect(cards).toHaveCount(1)
+  await expect(otherCompany).toHaveAttribute('aria-pressed', 'false')
   await popover.getByRole('button', { name: '全部公司', exact: true }).click()
   await expect(cards).toHaveCount(2)
 
@@ -373,6 +384,36 @@ test('商品可以通过漏斗覆层搜索选项并组合筛选', async ({ page 
   await page.keyboard.press('Escape')
   await expect(popover).toHaveCount(0)
   await expect(funnel).toBeFocused()
+})
+
+test('手机端筛选器不会因外部滑动或长按关闭，仅点按时关闭', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 })
+  const page = await context.newPage()
+  try {
+    await signIn(page, 'admin', adminPassword)
+    const me = await (await page.request.get('/api/auth/me')).json()
+    for (let index = 0; index < 8; index++) {
+      await page.request.post('/api/products', { headers: { 'X-CSRF-Token': me.csrf_token }, data: { chinese_name: `手机筛选商品 ${index + 1}` } })
+    }
+    await page.goto('/products')
+    await page.getByRole('button', { name: '筛选商品', exact: true }).click()
+    const popover = page.getByRole('dialog', { name: '商品筛选', exact: true })
+    await expect(popover).toBeVisible()
+    const cdp = await context.newCDPSession(page)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 2, y: 650 }] })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 2, y: 300 }] })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+    await expect(popover).toBeVisible()
+
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 2, y: 500 }] })
+    await page.waitForTimeout(700)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect(popover).toBeVisible()
+
+    await page.touchscreen.tap(2, 500)
+    await expect(popover).toHaveCount(0)
+  } finally { await context.close() }
 })
 
 test('商品搜索可以按创建者筛选', async ({ page, browser }) => {

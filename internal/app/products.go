@@ -201,14 +201,29 @@ func (a *App) listProductFilters(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
+func productFilterValues(values []string) []string {
+	result := []string{}
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func productFilterPlaceholders(values []string) string {
+	return strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
+}
+
 func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	company := strings.TrimSpace(r.URL.Query().Get("company"))
-	category := strings.TrimSpace(r.URL.Query().Get("category"))
-	attribute := strings.TrimSpace(r.URL.Query().Get("attribute"))
-	status := r.URL.Query().Get("status")
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	parameters := r.URL.Query()
+	query := strings.TrimSpace(parameters.Get("q"))
+	companies := productFilterValues(parameters["company"])
+	categories := productFilterValues(parameters["category"])
+	attributes := productFilterValues(parameters["attribute"])
+	statuses := productFilterValues(parameters["status"])
+	limit, _ := strconv.Atoi(parameters.Get("limit"))
+	offset, _ := strconv.Atoi(parameters.Get("offset"))
 	if limit < 1 || limit > 100 {
 		limit = 30
 	}
@@ -217,25 +232,35 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	where := "p.deleted_at IS NULL"
 	args := []any{}
-	if company != "" {
-		where += " AND p.company=?"
-		args = append(args, company)
-	}
-	if category != "" {
-		where += " AND p.category=?"
-		args = append(args, category)
-	}
-	if attribute != "" {
-		where += " AND EXISTS(SELECT 1 FROM product_attributes pf WHERE pf.product_id=p.id AND pf.key=?)"
-		args = append(args, attribute)
-	}
-	if status != "" {
-		if !validProductStatus(status) {
-			writeError(w, fail(422, "validation", "制作状态无效"))
-			return
+	if len(companies) > 0 {
+		where += " AND p.company IN (" + productFilterPlaceholders(companies) + ")"
+		for _, company := range companies {
+			args = append(args, company)
 		}
-		where += " AND p.development_status=?"
-		args = append(args, status)
+	}
+	if len(categories) > 0 {
+		where += " AND p.category IN (" + productFilterPlaceholders(categories) + ")"
+		for _, category := range categories {
+			args = append(args, category)
+		}
+	}
+	if len(attributes) > 0 {
+		where += " AND EXISTS(SELECT 1 FROM product_attributes pf WHERE pf.product_id=p.id AND pf.key IN (" + productFilterPlaceholders(attributes) + "))"
+		for _, attribute := range attributes {
+			args = append(args, attribute)
+		}
+	}
+	if len(statuses) > 0 {
+		for _, status := range statuses {
+			if !validProductStatus(status) {
+				writeError(w, fail(422, "validation", "制作状态无效"))
+				return
+			}
+		}
+		where += " AND p.development_status IN (" + productFilterPlaceholders(statuses) + ")"
+		for _, status := range statuses {
+			args = append(args, status)
+		}
 	}
 	if query != "" {
 		like := "%" + escapeLike(query) + "%"

@@ -43,9 +43,13 @@ func TestProductFilters(t *testing.T) {
 		name  string
 	}{
 		{"company=" + url.QueryEscape("青苹果公司"), 2, ""},
+		{"company=" + url.QueryEscape("青苹果公司") + "&company=" + url.QueryEscape("其他公司"), 3, ""},
 		{"category=" + url.QueryEscape("饮料"), 2, ""},
+		{"category=" + url.QueryEscape("饮料") + "&category=" + url.QueryEscape("罐头"), 3, ""},
 		{"status=design", 1, "筛选目标"},
+		{"status=design&status=completed", 2, ""},
 		{"attribute=" + url.QueryEscape("口味"), 1, "筛选目标"},
+		{"attribute=" + url.QueryEscape("口味") + "&attribute=" + url.QueryEscape("包装"), 2, ""},
 		{"company=" + url.QueryEscape("青苹果公司") + "&category=" + url.QueryEscape("饮料") + "&status=design&attribute=" + url.QueryEscape("口味"), 1, "筛选目标"},
 		{"company=" + url.QueryEscape("青苹果公司") + "&attribute=" + url.QueryEscape("包装"), 0, ""},
 		{"company=" + url.QueryEscape("青苹果"), 0, ""},
