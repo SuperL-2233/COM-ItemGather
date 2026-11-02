@@ -25,3 +25,6 @@ export interface SettingLink { id: string; idea_id: string; entity_type: 'compan
 export interface ChoiceOption { value: string; label: string }
 
 export interface SearchOption extends ChoiceOption { searchText?: string; description?: string; image?: string }
+
+export interface CategoryUsage { name: string; item_count: number; recipe_count: number; token: string }
+export interface CategoryDeletion { name: string; replacement: string; affected_items: number; affected_recipes: number }

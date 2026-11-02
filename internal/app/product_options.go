@@ -34,7 +34,10 @@ func ensureProductCategory(ctx context.Context, tx *sql.Tx, name string) (string
 		return "", err
 	}
 	var canonical string
-	err := tx.QueryRowContext(ctx, "SELECT name FROM product_categories WHERE name=? COLLATE NOCASE", name).Scan(&canonical)
+	err := tx.QueryRowContext(ctx, "SELECT name FROM product_categories WHERE name=? COLLATE NOCASE AND deleted_at IS NULL", name).Scan(&canonical)
+	if err == sql.ErrNoRows {
+		return "", fail(409, "category_deleted", "该分类已被删除，请重新选择；需要恢复时可显式新建同名分类")
+	}
 	return canonical, err
 }
 
@@ -54,7 +57,7 @@ func resolveProductStatus(ctx context.Context, q querier, value string) (string,
 }
 
 func loadProductOptions(ctx context.Context, q querier, kind string) ([]ChoiceOption, error) {
-	query := "SELECT name,name FROM product_categories ORDER BY name COLLATE NOCASE"
+	query := "SELECT name,name FROM product_categories WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE"
 	if kind == "statuses" {
 		query = "SELECT id,name FROM product_statuses ORDER BY position,created_at,id"
 	}
@@ -106,7 +109,10 @@ func (a *App) productOptions(w http.ResponseWriter, r *http.Request) {
 		defer tx.Rollback()
 		item := ChoiceOption{}
 		if kind == "categories" {
-			item.Value, err = ensureProductCategory(r.Context(), tx, name)
+			_, err = tx.ExecContext(r.Context(), "UPDATE product_categories SET deleted_at=NULL,version=version+1 WHERE name=? COLLATE NOCASE AND deleted_at IS NOT NULL", name)
+			if err == nil {
+				item.Value, err = ensureProductCategory(r.Context(), tx, name)
+			}
 			item.Label = item.Value
 		} else {
 			_, err = tx.ExecContext(r.Context(), "INSERT OR IGNORE INTO product_statuses(id,name,created_at) VALUES(?,?,?)", security.ID(), name, now())

@@ -15,3 +15,6 @@ export const emptyToolSettings = () => ({ trigger: '', effect: '', sources: [], 
 export const verificationLabels: Record<string, string> = { untested: '待验证', verified: '已验证', invalid: '不可行' }
 
 export const developmentStatusLabel = (item: { development_status: string; development_status_label?: string }) => item.development_status_label || statusLabels[item.development_status] || item.development_status
+
+// Category names use SQLite NOCASE identity; search can still fold all Unicode.
+export const categoryIdentity = (value: string) => value.replace(/[A-Z]/g, character => character.toLowerCase())

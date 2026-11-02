@@ -283,6 +283,13 @@ func (a *App) saveRecipe(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if i.Category != "" {
+			i.Category, err = ensureProductCategory(r.Context(), tx, i.Category)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+		}
 		key := i.ProductID + "|" + i.Category
 		if at, ok := seen[key]; ok {
 			item.Ingredients[at].Quantity += i.Quantity
@@ -301,13 +308,7 @@ func (a *App) saveRecipe(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.ExecContext(r.Context(), "INSERT INTO recipes(id,group_id,name,output_quantity,notes,verification,development_status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", item.ID, groupID, item.Name, item.OutputQuantity, item.Notes, item.Verification, item.DevelopmentStatus, user, stamp, stamp)
 	}
 	if err == nil {
-		_, err = tx.ExecContext(r.Context(), "DELETE FROM recipe_ingredients WHERE recipe_id=?", item.ID)
-	}
-	for at, i := range item.Ingredients {
-		if err != nil {
-			break
-		}
-		_, err = tx.ExecContext(r.Context(), "INSERT INTO recipe_ingredients(id,recipe_id,product_id,category,quantity,position) VALUES(?,?,?,?,?,?)", security.ID(), item.ID, nullString(i.ProductID), i.Category, i.Quantity, at)
+		err = replaceRecipeIngredients(r.Context(), tx, item.ID, item.Ingredients)
 	}
 	if err == nil {
 		_, err = tx.ExecContext(r.Context(), "UPDATE recipe_groups SET updated_at=? WHERE id=?", stamp, groupID)
@@ -584,4 +585,16 @@ func (a *App) catalogExport(ctx context.Context, all bool) (map[string]any, erro
 		result["tool_categories"] = names
 	}
 	return result, nil
+}
+
+func replaceRecipeIngredients(ctx context.Context, tx *sql.Tx, id string, ingredients []Ingredient) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM recipe_ingredients WHERE recipe_id=?", id); err != nil {
+		return err
+	}
+	for at, i := range ingredients {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO recipe_ingredients(id,recipe_id,product_id,category,quantity,position) VALUES(?,?,?,?,?,?)", security.ID(), id, nullString(i.ProductID), i.Category, i.Quantity, at); err != nil {
+			return err
+		}
+	}
+	return nil
 }

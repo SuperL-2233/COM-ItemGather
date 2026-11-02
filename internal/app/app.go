@@ -112,6 +112,8 @@ func (a *App) routes() {
 	handle("POST /api/ideas/{id}/revisions/{revision}/restore", a.restoreRevision("idea"), true)
 	handle("GET /api/products", a.listProducts, true)
 	handle("POST /api/products", a.createProduct, true)
+	handle("GET /api/product-options/categories/usage", a.productCategoryUsage, true)
+	handle("DELETE /api/product-options/categories", a.deleteProductCategory, true)
 	handle("GET /api/product-options/{kind}", a.productOptions, true)
 	handle("POST /api/product-options/{kind}", a.productOptions, true)
 	handle("GET /api/products/filters", a.listProductFilters, true)

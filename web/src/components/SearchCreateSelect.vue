@@ -18,8 +18,9 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   error?: string
   fullDetails?: boolean
+  allowRemove?: boolean
 }>(), { allowEmpty: true, emptyLabel: '未设置', maxLength: 100 })
-const emit = defineEmits<{ details: [name: string]; retry: [] }>()
+const emit = defineEmits<{ details: [name: string]; retry: []; remove: [option: SearchOption] }>()
 const id = useId()
 const root = ref<HTMLElement>()
 const searchInput = ref<HTMLInputElement>()
@@ -110,8 +111,14 @@ async function move(delta: number) {
   await nextTick()
   document.getElementById(`${id}-option-${active.value}`)?.scrollIntoView({ block: 'nearest' })
 }
+function removeOption(option: SearchOption) {
+  if (busy.value) return
+  close()
+  emit('remove',option)
+}
 function keydown(event: KeyboardEvent) {
   if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Delete' && event.shiftKey && props.allowRemove && rows.value[active.value]?.kind === 'option') { event.preventDefault(); event.stopPropagation(); removeOption(rows.value[active.value]); return }
   if (!['ArrowDown','ArrowUp','Enter','Escape'].includes(event.key)) return
   event.preventDefault()
   event.stopPropagation()
@@ -162,7 +169,7 @@ function focusOut(event: FocusEvent) {
 }
 onMounted(() => { document.addEventListener('click', outside); window.addEventListener('resize',placePanel); window.visualViewport?.addEventListener('resize',placePanel) })
 onUnmounted(() => { document.removeEventListener('click', outside); window.removeEventListener('resize',placePanel); window.visualViewport?.removeEventListener('resize',placePanel) })
-defineExpose({ select })
+defineExpose({ select, focus: () => trigger.value?.focus() })
 </script>
 
 <template>
@@ -183,7 +190,8 @@ defineExpose({ select })
       </div>
       <div :id="`${id}-options`" class="choice-list" role="listbox" :aria-label="`${label}选项`">
         <template v-for="(row,index) in rows" :key="`${row.kind}:${row.value}`">
-          <button v-if="row.kind !== 'create' || !adding" :id="`${id}-option-${index}`" type="button" role="option" tabindex="-1" class="choice-row" :class="{ 'keyboard-active': active === index, 'create-option': row.kind === 'create' }" :aria-selected="row.kind !== 'create' && value === row.value" :disabled="busy" @click="activate(index)" @mouseenter="active = index">
+          <div v-if="row.kind !== 'create' || !adding" class="choice-option-row" role="presentation">
+          <button :id="`${id}-option-${index}`" type="button" role="option" tabindex="-1" class="choice-row" :class="{ 'keyboard-active': active === index, 'create-option': row.kind === 'create' }" :aria-selected="row.kind !== 'create' && value === row.value" :disabled="busy" @click="activate(index)" @mouseenter="active = index">
             <template v-if="row.kind === 'create'"><span>{{ createLabel }}</span></template>
             <template v-else-if="row.kind === 'empty'"><span>{{ emptyLabel }}</span></template>
             <template v-else>
@@ -192,10 +200,13 @@ defineExpose({ select })
               <span v-if="value === row.value" aria-hidden="true">✓</span>
             </template>
           </button>
+          <button v-if="allowRemove && row.kind === 'option'" type="button" tabindex="-1" class="choice-remove" :aria-label="`删除分类“${row.label}”`" title="删除分类；也可选中后按 Shift+Delete" :disabled="busy" @click.stop="removeOption(row)">删除</button>
+          </div>
         </template>
         <p v-if="loading" class="muted choice-hint">读取选项中…</p>
         <p v-else-if="!filtered.length" class="muted choice-hint">没有匹配选项，可通过“＋”创建。</p>
       </div>
+      <p v-if="allowRemove && filtered.length" class="muted choice-hint">选中分类后也可按 Shift+Delete 删除。</p>
       <p v-if="localError || error" class="error-text choice-hint" role="alert">{{ localError || error }} <button v-if="error" type="button" class="button-link" @click="emit('retry')">重试</button></p>
     </div>
   </div>
