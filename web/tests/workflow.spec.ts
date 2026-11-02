@@ -458,7 +458,11 @@ test('商品搜索可以按创建者筛选', async ({ page, browser }) => {
     }
     const userID = accountIDs.get(second.page)!
     await page.goto(`/search?q=${encodeURIComponent('创建者验收')}&kind=products&author=${userID}`)
-    await expect(page.getByLabel('创建者', { exact: true })).toHaveValue(userID)
+    await page.getByRole('button', { name: '筛选搜索结果', exact: true }).click()
+    const filters = page.getByRole('dialog', { name: '搜索结果筛选', exact: true })
+    await filters.getByRole('navigation').getByRole('button', { name: '创建者', exact: true }).click()
+    await expect(filters.getByRole('button', { name: '第二位成员', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await filters.getByRole('button', { name: '完成', exact: true }).click()
     await expect(page.locator('.product-card')).toHaveCount(1)
     await expect(page.locator('.product-card')).toContainText('创建者验收：成员商品')
   } finally { await second.context.close() }

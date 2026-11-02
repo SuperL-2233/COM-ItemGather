@@ -8,6 +8,7 @@ const props = defineProps<{
   allLabel: string
   modelValue: string[]
   options: (string | FilterOption)[]
+  multiple?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string[]] }>()
 const search = ref('')
@@ -19,7 +20,7 @@ const filteredOptions = computed(() => {
 })
 function toggle(option: string | FilterOption) {
   const selected = value(option)
-  emit('update:modelValue', props.modelValue.includes(selected) ? props.modelValue.filter(item => item !== selected) : [...props.modelValue, selected])
+  emit('update:modelValue', props.modelValue.includes(selected) ? props.modelValue.filter(item => item !== selected) : props.multiple === false ? [selected] : [...props.modelValue, selected])
 }
 </script>
 

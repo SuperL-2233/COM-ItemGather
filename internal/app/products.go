@@ -271,13 +271,17 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 		where += " AND p.company_id=?"
 		args = append(args, companyID)
 	}
-	if source := parameters.Get("source"); source != "" {
-		where += " AND EXISTS(SELECT 1 FROM json_each(p.tool_settings_json,'$.sources') s WHERE json_extract(s.value,'$.method')=?)"
-		args = append(args, source)
+	if sources := productFilterValues(parameters["source"]); len(sources) > 0 {
+		where += " AND EXISTS(SELECT 1 FROM json_each(p.tool_settings_json,'$.sources') s WHERE json_extract(s.value,'$.method') IN (" + productFilterPlaceholders(sources) + "))"
+		for _, source := range sources {
+			args = append(args, source)
+		}
 	}
-	if use := parameters.Get("use_category"); use != "" {
-		where += " AND p.use_category=? COLLATE NOCASE"
-		args = append(args, use)
+	if uses := productFilterValues(parameters["use_category"]); len(uses) > 0 {
+		where += " AND p.use_category COLLATE NOCASE IN (" + productFilterPlaceholders(uses) + ")"
+		for _, use := range uses {
+			args = append(args, use)
+		}
 	}
 	if len(companies) > 0 {
 		where += " AND p.company IN (" + productFilterPlaceholders(companies) + ")"

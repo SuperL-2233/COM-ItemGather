@@ -240,6 +240,10 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 func writeError(w http.ResponseWriter, err error) {
+	// Live search routinely cancels obsolete requests; the client has gone away.
+	if errors.Is(err, context.Canceled) {
+		return
+	}
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		log.Printf("internal API error: %v", err)

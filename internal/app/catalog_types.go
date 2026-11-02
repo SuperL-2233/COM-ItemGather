@@ -56,13 +56,14 @@ type Recipe struct {
 	DeletedAt         string       `json:"deleted_at,omitempty"`
 }
 type RecipeGroup struct {
-	ID        string   `json:"id"`
-	OutputID  string   `json:"output_id"`
-	Output    Product  `json:"output"`
-	Recipes   []Recipe `json:"recipes"`
-	Version   int      `json:"version"`
-	CreatedBy string   `json:"created_by"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
-	DeletedAt string   `json:"deleted_at,omitempty"`
+	RecipeCount *int     `json:"recipe_count,omitempty"`
+	ID          string   `json:"id"`
+	OutputID    string   `json:"output_id"`
+	Output      Product  `json:"output"`
+	Recipes     []Recipe `json:"recipes"`
+	Version     int      `json:"version"`
+	CreatedBy   string   `json:"created_by"`
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at"`
+	DeletedAt   string   `json:"deleted_at,omitempty"`
 }

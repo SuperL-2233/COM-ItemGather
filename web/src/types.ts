@@ -19,10 +19,11 @@ export interface ToolSettings { trigger: string; effect: string; sources: Acquis
 export interface Company { id: string; chinese_name: string; english_name: string; aliases: string; description: string; attachments: Attachment[]; item_count: number; version: number; created_by: string; created_at: string; updated_at: string; deleted_at?: string }
 export interface Ingredient { product_id: string; category: string; quantity: number; item?: Product }
 export interface Recipe { id: string; group_id: string; name: string; output_quantity: number; notes: string; verification: 'untested' | 'verified' | 'invalid'; development_status: Product['development_status']; ingredients: Ingredient[]; version: number; created_by: string; created_at: string; updated_at: string; deleted_at?: string }
-export interface RecipeGroup { id: string; output_id: string; output: Product; recipes: Recipe[]; version: number; created_by: string; created_at: string; updated_at: string; deleted_at?: string }
+export interface RecipeGroup { recipe_count?: number; id: string; output_id: string; output: Product; recipes: Recipe[]; version: number; created_by: string; created_at: string; updated_at: string; deleted_at?: string }
 export interface SettingLink { id: string; idea_id: string; entity_type: 'company' | 'recipe'; entity_id: string; status: string; title: string; path: string }
 
 export interface ChoiceOption { value: string; label: string }
+export interface FilterDefinition { key: string; label: string; allLabel: string; options: (string | ChoiceOption)[]; multiple?: boolean }
 
 export interface SearchOption extends ChoiceOption { searchText?: string; description?: string; image?: string }
 

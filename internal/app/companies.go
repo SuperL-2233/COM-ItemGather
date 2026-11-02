@@ -161,12 +161,23 @@ func queryIDs(ctx context.Context, q querier, query string, args ...any) ([]stri
 	return ids, rows.Err()
 }
 func listCompaniesData(ctx context.Context, q querier, search, author string, deleted bool) ([]Company, error) {
+	return findCompanies(ctx, q, search, productFilterValues([]string{author}), deleted, 0)
+}
+func findCompanies(ctx context.Context, q querier, search string, authors []string, deleted bool, limit int) ([]Company, error) {
 	where := "c.deleted_at IS NULL"
 	if deleted {
 		where = "1=1"
 	}
 	like := "%" + escapeLike(search) + "%"
-	ids, err := queryIDs(ctx, q, `SELECT c.id FROM companies c WHERE `+where+` AND (?='' OR c.created_by=?) AND (c.chinese_name LIKE ? ESCAPE '\' OR c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\' OR c.description LIKE ? ESCAPE '\') ORDER BY c.updated_at DESC,c.id`, author, author, like, like, like, like)
+	query := `SELECT c.id FROM companies c WHERE ` + where + ` AND (c.chinese_name LIKE ? ESCAPE '\' OR c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\' OR c.description LIKE ? ESCAPE '\')`
+	args := []any{like, like, like, like}
+	query, args = searchIn(query, args, "c.created_by", authors)
+	query += " ORDER BY c.updated_at DESC,c.id"
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	ids, err := queryIDs(ctx, q, query, args...)
 	if err != nil {
 		return nil, err
 	}

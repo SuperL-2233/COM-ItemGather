@@ -95,20 +95,51 @@ func loadRecipeGroup(ctx context.Context, q querier, id string, deleted bool) (R
 	}
 	return g, nil
 }
+
+// Search cards need an output and count, without hydrating every recipe and
+// ingredient (which can include large, repeated item descriptions/attachments).
+func loadRecipeGroupSummary(ctx context.Context, q querier, id string) (RecipeGroup, error) {
+	var group RecipeGroup
+	var count int
+	err := q.QueryRowContext(ctx, `SELECT g.id,g.output_id,(SELECT COUNT(*) FROM recipes r WHERE r.group_id=g.id AND r.deleted_at IS NULL) FROM recipe_groups g WHERE g.id=? AND g.deleted_at IS NULL`, id).Scan(&group.ID, &group.OutputID, &count)
+	if err != nil {
+		return group, err
+	}
+	group.RecipeCount = &count
+	group.Recipes = []Recipe{}
+	group.Output, err = loadProduct(ctx, q, group.OutputID, true, false)
+	return group, err
+}
 func listRecipeGroupsData(ctx context.Context, q querier, search, author, itemID string, deleted bool) ([]RecipeGroup, error) {
+	return findRecipeGroups(ctx, q, search, productFilterValues([]string{author}), itemID, deleted, 0, false)
+}
+func findRecipeGroups(ctx context.Context, q querier, search string, authors []string, itemID string, deleted bool, limit int, summary bool) ([]RecipeGroup, error) {
 	where := "g.deleted_at IS NULL"
 	if deleted {
 		where = "1=1"
 	}
 	like := "%" + escapeLike(search) + "%"
-	query := `SELECT g.id FROM recipe_groups g JOIN products p ON p.id=g.output_id WHERE ` + where + ` AND (?='' OR g.created_by=?) AND (?='' OR g.output_id=? OR EXISTS(SELECT 1 FROM recipes r JOIN recipe_ingredients i ON i.recipe_id=r.id WHERE r.group_id=g.id AND r.deleted_at IS NULL AND (i.product_id=? OR (i.product_id IS NULL AND i.category=(SELECT category FROM products WHERE id=? AND item_kind='product'))))) AND (?='' OR p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM recipes r WHERE r.group_id=g.id AND r.deleted_at IS NULL AND (r.name LIKE ? ESCAPE '\' OR r.notes LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM recipe_ingredients i LEFT JOIN products m ON m.id=i.product_id WHERE i.recipe_id=r.id AND (i.category LIKE ? ESCAPE '\' OR m.chinese_name LIKE ? ESCAPE '\' OR m.english_name LIKE ? ESCAPE '\'))))) ORDER BY g.updated_at DESC,g.id`
-	ids, err := queryIDs(ctx, q, query, author, author, itemID, itemID, itemID, itemID, search, like, like, like, like, like, like, like)
+	query := `SELECT g.id FROM recipe_groups g JOIN products p ON p.id=g.output_id WHERE ` + where + ` AND (?='' OR g.output_id=? OR EXISTS(SELECT 1 FROM recipes r JOIN recipe_ingredients i ON i.recipe_id=r.id WHERE r.group_id=g.id AND r.deleted_at IS NULL AND (i.product_id=? OR (i.product_id IS NULL AND i.category=(SELECT category FROM products WHERE id=? AND item_kind='product'))))) AND (?='' OR p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM recipes r WHERE r.group_id=g.id AND r.deleted_at IS NULL AND (r.name LIKE ? ESCAPE '\' OR r.notes LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM recipe_ingredients i LEFT JOIN products m ON m.id=i.product_id WHERE i.recipe_id=r.id AND (i.category LIKE ? ESCAPE '\' OR m.chinese_name LIKE ? ESCAPE '\' OR m.english_name LIKE ? ESCAPE '\')))))`
+	args := []any{itemID, itemID, itemID, itemID, search, like, like, like, like, like, like, like}
+	query, args = searchIn(query, args, "g.created_by", authors)
+	query += " ORDER BY g.updated_at DESC,g.id"
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	ids, err := queryIDs(ctx, q, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	items := []RecipeGroup{}
 	for _, id := range ids {
-		g, e := loadRecipeGroup(ctx, q, id, true)
+		var g RecipeGroup
+		var e error
+		if summary {
+			g, e = loadRecipeGroupSummary(ctx, q, id)
+		} else {
+			g, e = loadRecipeGroup(ctx, q, id, true)
+		}
 		if e != nil {
 			return nil, e
 		}

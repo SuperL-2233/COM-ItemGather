@@ -6,13 +6,15 @@ import type { Idea, Page } from '../types'
 import IdeaCard from '../components/IdeaCard.vue'
 import { useEvents } from '../events'
 import { toast } from '../utils'
+import FilterPopover from '../components/FilterPopover.vue'
+import { useLiveSearch } from '../composables/useLiveSearch'
 
 const scope = currentOfflineScope()
 const requests = new AbortController()
 let disposed = false
 let draftChanged = false
 const active = () => !disposed && isOfflineScopeActive(scope)
-const text = ref(''); const files = ref<PendingFile[]>([]); const ideas = ref<Idea[]>([]); const total = ref(0); const filter = ref('all'); const loading = ref(true); const error = ref(''); const composer = ref<HTMLTextAreaElement>(); const fileInput = ref<HTMLInputElement>(); const dragging = ref(false); const syncState = ref(''); const syncError = ref(false); const outbox = ref<OutboxItem[]>([]); const activeJob = ref(''); const syncing = new Set<string>(); let draftTimer: ReturnType<typeof setTimeout> | undefined; let requestID = 0
+const text = ref(''); const files = ref<PendingFile[]>([]); const ideas = ref<Idea[]>([]); const total = ref(0); const composer = ref<HTMLTextAreaElement>(); const fileInput = ref<HTMLInputElement>(); const dragging = ref(false); const syncState = ref(''); const syncError = ref(false); const outbox = ref<OutboxItem[]>([]); const activeJob = ref(''); const syncing = new Set<string>(); let draftTimer: ReturnType<typeof setTimeout> | undefined;
 const placeholder = '想到什么就写什么。每次记录一条灵感，名称、概念、玩法、包装都可以。'
 function addFiles(incoming: File[] | FileList) {
   const allowed = Array.from(incoming).filter(file => ['image/jpeg','image/png','image/webp'].includes(file.type))
@@ -86,18 +88,26 @@ async function syncAll() {
     await syncItem(item)
   }
 }
-async function loadIdeas(reset = true) {
+const query = ref('')
+const filters = ref<Record<string, string[]>>({ scope: [] })
+const filterGroups = [{ key: 'scope', label: '浏览范围', allLabel: '全部灵感', multiple: false, options: [{ value: 'favorites', label: '收藏' }, { value: 'unlinked', label: '未关联商品／道具' }, { value: 'mine', label: '我创建的' }] }]
+let append = false
+const { loading, error, run, schedule, refresh } = useLiveSearch(signal => {
+  const parameters = new URLSearchParams({ q: query.value, filter: filters.value.scope[0] || 'all', limit: '20', offset: String(append ? ideas.value.length : 0) })
+  return api<Page<Idea>>(`/ideas?${parameters}`, { accountID: scope.userID, signal })
+}, result => {
   if (!active()) return
-  const id = ++requestID; if (reset) loading.value = true; error.value = ''
-  try {
-    const offset = reset ? 0 : ideas.value.length
-    const result = await api<Page<Idea>>(`/ideas?filter=${filter.value}&limit=20&offset=${offset}`, { accountID: scope.userID, signal: requests.signal })
-    if (!active() || id !== requestID) return
-    ideas.value = reset ? result.items : [...ideas.value, ...result.items.filter(item => !ideas.value.some(existing => existing.id === item.id))]; total.value = result.total
-  } catch (e) { if (active()) error.value = (e as Error).message }
-  finally { if (active() && id === requestID) loading.value = false }
+  ideas.value = append ? [...ideas.value, ...result.items.filter(item => !ideas.value.some(existing => existing.id === item.id))] : result.items
+  total.value = result.total
+})
+loading.value = true
+function loadIdeas(reset = true) {
+  if (!active() || (!reset && loading.value)) return
+  append = !reset
+  return run()
 }
-function setFilter(value: string) { filter.value = value; loadIdeas() }
+watch(query, () => { append = false; schedule() }, { flush: 'sync' })
+watch(filters, () => void loadIdeas())
 function online() { if (active()) { syncState.value = '网络已恢复'; void syncAll() } }
 onMounted(async () => {
   window.addEventListener('keydown', globalKey); window.addEventListener('online', online); window.addEventListener('pagehide', persistDraft)
@@ -111,7 +121,7 @@ onUnmounted(() => {
   persistDraft(); disposed = true; requests.abort(); clearTimeout(draftTimer)
   window.removeEventListener('keydown', globalKey); window.removeEventListener('online', online); window.removeEventListener('pagehide', persistDraft)
 })
-useEvents(() => { if (active()) { void loadIdeas(); void refreshOutbox() } })
+useEvents(() => { if (active()) { append = false; refresh(); void refreshOutbox() } })
 </script>
 <template>
   <section aria-labelledby="ideas-heading"><div class="page-heading"><div><h1 id="ideas-heading">灵感库</h1><p>不用填写标题或分类，先把想法记下来。</p></div></div>
@@ -122,7 +132,7 @@ useEvents(() => { if (active()) { void loadIdeas(); void refreshOutbox() } })
       <p v-if="syncState" class="composer-status" :class="syncError ? 'error-text' : 'muted'" role="status">{{ syncState }}</p>
     </div>
     <div v-for="item in outbox" :key="item.id" class="outbox"><strong>{{ item.idea_id ? '部分已同步' : '已暂存在本机' }}</strong> · {{ item.text || `${item.files.length} 张图片` }} <span v-if="item.error" class="error-text">{{ item.error }}</span><button class="button-link" @click="syncItem(item)">重试</button></div>
-    <div class="toolbar"><div class="filter-tabs" aria-label="灵感筛选"><button v-for="item in [['all','全部'],['favorites','收藏'],['unlinked','未关联商品／道具'],['mine','我创建的']]" :key="item[0]" :class="{ active: filter === item[0] }" @click="setFilter(item[0])">{{ item[1] }}</button></div></div>
-    <p v-if="error" class="error-text">{{ error }} <button class="button-link" @click="loadIdeas()">重试</button></p><p v-if="loading" class="muted">读取中…</p><div v-else-if="ideas.length" class="idea-list"><IdeaCard v-for="idea in ideas" :key="idea.id" :idea="idea" @changed="loadIdeas()" /></div><div v-else class="empty-state">还没有符合条件的灵感。直接从上方写下第一条吧。</div><button v-if="ideas.length < total" class="secondary load-more" @click="loadIdeas(false)">加载更多（{{ ideas.length }} / {{ total }}）</button>
+    <form class="toolbar" @submit.prevent="loadIdeas()"><input v-model="query" type="search" aria-label="搜索灵感" placeholder="搜索内容、标题或标签" /><FilterPopover id="idea-filter-popover" v-model="filters" label="灵感" :groups="filterGroups" /></form>
+    <p v-if="error" class="error-text">{{ error }} <button class="button-link" @click="loadIdeas()">重试</button></p><p v-if="loading && !ideas.length" class="muted">读取中…</p><div v-else-if="ideas.length" class="idea-list"><IdeaCard v-for="idea in ideas" :key="idea.id" :idea="idea" @changed="loadIdeas()" /></div><div v-else class="empty-state">还没有符合条件的灵感。直接从上方写下第一条吧。</div><button v-if="ideas.length < total" class="secondary load-more" :disabled="loading" @click="loadIdeas(false)">加载更多（{{ ideas.length }} / {{ total }}）</button>
   </section>
 </template>
