@@ -271,6 +271,34 @@ test('失败卡片可以直接重新整理，内容类型可见', async ({ page 
   await expect.poll(async () => (await (await page.request.get('/api/ideas')).json()).items.find((item: { original_content: string }) => item.original_content === text).ai_status).toBe('succeeded')
 })
 
+test('商品列表自动加载后续内容，英文名仅用字体样式区分', async ({ page }) => {
+  await signIn(page, 'admin', adminPassword)
+  const me = await (await page.request.get('/api/auth/me')).json()
+  for (let index = 0; index < 31; index++) {
+    const created = await page.request.post('/api/products', {
+      headers: { 'X-CSRF-Token': me.csrf_token },
+      data: { chinese_name: `自动加载验收商品 ${index + 1}` },
+    })
+    expect(created.status()).toBe(201)
+  }
+  const named = await page.request.post('/api/products', {
+    headers: { 'X-CSRF-Token': me.csrf_token },
+    data: { chinese_name: '自动加载验收商品：名称样式', english_name: 'Style Sample' },
+  })
+  expect(named.status()).toBe(201)
+  await page.goto('/products')
+  await page.getByPlaceholder('搜索名称、公司、分类或描述').fill('自动加载验收商品')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page.locator('.product-card').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: /加载更多/ })).toHaveCount(0)
+  const englishName = page.locator('.product-english-name').filter({ hasText: 'Style Sample' })
+  await expect(englishName).toHaveText('Style Sample')
+  await expect(englishName).toHaveCSS('font-style', 'italic')
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+  await expect(page.locator('.product-card')).toHaveCount(32)
+  await expect(page.locator('.product-card').last()).toContainText('自动加载验收商品 1')
+})
+
 test('商品搜索可以按创建者筛选', async ({ page, browser }) => {
   await signIn(page, 'admin', adminPassword)
   const second = await secondBrowser(browser)
