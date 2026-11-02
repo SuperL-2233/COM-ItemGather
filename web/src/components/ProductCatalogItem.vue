@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Product } from '../types'
-import { developmentStatusLabel, productTitle } from '../utils'
+import { developmentStatusLabel, itemPath, productTitle } from '../utils'
 
 const props = defineProps<{ product: Product; layout: 'list' | 'grid' }>()
 const cover = computed(() => props.product.attachments[0])
 const status = computed(() => ['concept', 'design', 'production', 'completed'].includes(props.product.development_status) ? props.product.development_status : 'custom')
+const categoryLabel = computed(() => props.product.item_kind === 'tool' ? '使用类别' : '商品分类')
+const category = computed(() => props.product.item_kind === 'tool' ? props.product.use_category : props.product.category)
 </script>
 
 <template>
@@ -16,7 +18,7 @@ const status = computed(() => ['concept', 'design', 'production', 'completed'].i
         <svg v-else viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4 7.5 8 4.5 8-4.5M12 12v9M8 5.25l8 4.5" /></svg>
       </div>
       <div class="catalog-names">
-        <h2><RouterLink :to="`/products/${product.id}`">{{ productTitle(product) }}</RouterLink></h2>
+        <h2><RouterLink :to="itemPath(product)">{{ productTitle(product) }}</RouterLink></h2>
         <p v-if="product.chinese_name && product.english_name" class="catalog-english">{{ product.english_name }}</p>
       </div>
     </div>
@@ -26,9 +28,9 @@ const status = computed(() => ['concept', 'design', 'production', 'completed'].i
       <span v-else :class="{ 'catalog-unset': !product.company }">{{ product.company || '未设置公司' }}</span>
     </div>
     <div class="catalog-category">
-      <span class="catalog-field-label">商品分类</span>
-      <span v-if="product.category" class="catalog-category-tag">{{ product.category }}</span>
-      <span v-else class="catalog-unset">未分类</span>
+      <span class="catalog-field-label">{{ categoryLabel }}</span>
+      <span v-if="category" class="catalog-category-tag">{{ category }}</span>
+      <span v-else class="catalog-unset">{{ product.item_kind === 'tool' ? '未设置类别' : '未分类' }}</span>
     </div>
     <div class="catalog-status">
       <span class="catalog-field-label">制作状态</span>
