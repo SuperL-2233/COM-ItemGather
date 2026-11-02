@@ -271,6 +271,39 @@ test('失败卡片可以直接重新整理，内容类型可见', async ({ page 
   await expect.poll(async () => (await (await page.request.get('/api/ideas')).json()).items.find((item: { original_content: string }) => item.original_content === text).ai_status).toBe('succeeded')
 })
 
+test('商品搜索输入即查，连续输入合并请求且等待时保留列表', async ({ page }) => {
+  await signIn(page, 'admin', adminPassword)
+  const me = await (await page.request.get('/api/auth/me')).json()
+  for (const chinese_name of ['即时搜索原有商品', 'LiveSearchTarget 即时搜索目标商品']) {
+    const created = await page.request.post('/api/products', { headers: { 'X-CSRF-Token': me.csrf_token }, data: { chinese_name } })
+    expect(created.status()).toBe(201)
+  }
+  await page.goto('/products')
+  const input = page.getByRole('searchbox', { name: '搜索商品', exact: true })
+  const original = page.locator('.product-card').filter({ hasText: '即时搜索原有商品' })
+  await expect(original).toBeVisible()
+  await page.waitForTimeout(250)
+  let searches = 0
+  let releaseSearch!: () => void
+  const searchResponse = new Promise<void>(resolve => { releaseSearch = resolve })
+  await page.route('**/api/products?*', async route => {
+    const query = new URL(route.request().url()).searchParams.get('q') || ''
+    if (!query) return route.continue()
+    searches++
+    if (query === 'LiveSearchTarget') await searchResponse
+    await route.continue()
+  })
+  await input.pressSequentially('LiveSearchTarget', { delay: 35 })
+  await expect.poll(() => searches).toBe(1)
+  await expect(original).toBeVisible()
+  await expect(page.getByText('读取中…', { exact: true })).toHaveCount(0)
+  releaseSearch()
+  await expect(page.locator('.product-card')).toHaveCount(1)
+  await expect(page.locator('.product-card')).toContainText('LiveSearchTarget 即时搜索目标商品')
+  expect(searches).toBe(1)
+  await expect(page.getByRole('button', { name: '搜索', exact: true })).toHaveCount(0)
+})
+
 test('商品列表自动加载后续内容，英文名仅用字体样式区分', async ({ page }) => {
   await signIn(page, 'admin', adminPassword)
   const me = await (await page.request.get('/api/auth/me')).json()
@@ -288,7 +321,6 @@ test('商品列表自动加载后续内容，英文名仅用字体样式区分',
   expect(named.status()).toBe(201)
   await page.goto('/products')
   await page.getByPlaceholder('搜索名称、公司、分类或描述').fill('自动加载验收商品')
-  await page.getByRole('button', { name: '搜索', exact: true }).click()
   await expect(page.locator('.product-card').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /加载更多/ })).toHaveCount(0)
   const englishName = page.locator('.product-english-name').filter({ hasText: 'Style Sample' })
@@ -312,7 +344,6 @@ test('商品可以通过漏斗覆层搜索选项并组合筛选', async ({ page 
   }
   await page.goto('/products')
   await page.getByPlaceholder('搜索名称、公司、分类或描述').fill('筛选器')
-  await page.getByRole('button', { name: '搜索', exact: true }).click()
   await expect(page.locator('.product-card')).toHaveCount(2)
 
   const funnel = page.getByRole('button', { name: '筛选商品', exact: true })

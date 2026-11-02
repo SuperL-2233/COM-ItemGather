@@ -17,23 +17,31 @@ const loadMoreTrigger = ref<HTMLElement>()
 const form = ref({ chinese_name: '', english_name: '', company: '', category: '', description: '', development_status: 'concept', attributes: [] })
 let observer: IntersectionObserver | undefined
 let requestID = 0
+let requestController: AbortController | undefined
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 async function load(reset = true) {
   if (!reset && (loading.value || loadingMore.value || products.value.length >= total.value)) return
-  const id = reset ? ++requestID : requestID
+  if (reset) {
+    requestID++
+    requestController?.abort()
+    requestController = new AbortController()
+    loading.value = true
+    loadingMore.value = false
+  } else loadingMore.value = true
+  const id = requestID
   error.value = ''
-  if (reset) { loading.value = true; loadingMore.value = false }
-  else loadingMore.value = true
   try {
     const offset = reset ? 0 : products.value.length
     const parameters = new URLSearchParams({ q: query.value, limit: '30', offset: String(offset) })
     const selectedFilters = { company: company.value, category: category.value, attribute: attribute.value, status: status.value }
     for (const [key, values] of Object.entries(selectedFilters)) for (const value of values) parameters.append(key, value)
-    const result = await api<Page<Product>>(`/products?${parameters}`)
+    const result = await api<Page<Product>>(`/products?${parameters}`, { signal: requestController?.signal })
     if (id !== requestID) return
     products.value = reset ? result.items : [...products.value, ...result.items.filter(item => !products.value.some(existing => existing.id === item.id))]
     total.value = result.total
   } catch (e) {
+    if ((e as Error).name === 'AbortError') return
     if (id === requestID) error.value = (e as Error).message
   } finally {
     if (id === requestID) loading.value = false
@@ -44,6 +52,15 @@ async function load(reset = true) {
     const trigger = loadMoreTrigger.value
     if (trigger && trigger.getBoundingClientRect().top <= window.innerHeight + 600) void load(false)
   }
+}
+function searchNow() {
+  clearTimeout(searchTimer)
+  searchTimer = undefined
+  void load()
+}
+function scheduleSearch() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(searchNow, 250)
 }
 async function loadFilters() {
   try { filterOptions.value = await api<ProductFilterOptions>('/products/filters') }
@@ -62,6 +79,7 @@ function clearFilters() { company.value = []; category.value = []; attribute.val
 function closeOnOutside(event: MouseEvent) { if (showFilters.value && !filterControl.value?.contains(event.target as Node)) showFilters.value = false }
 function closeOnEscape(event: KeyboardEvent) { if (event.key === 'Escape' && showFilters.value) { showFilters.value = false; filterButton.value?.focus() } }
 
+watch(query, scheduleSearch)
 watch(loadMoreTrigger, (element, previous) => {
   if (previous) observer?.unobserve(previous)
   if (element) observer?.observe(element)
@@ -77,12 +95,14 @@ onMounted(() => {
 })
 onUnmounted(() => {
   requestID++
+  clearTimeout(searchTimer)
+  requestController?.abort()
   observer?.disconnect()
   document.removeEventListener('click', closeOnOutside)
   document.removeEventListener('keydown', closeOnEscape)
 })
 useEvents(refresh)
 </script>
-<template><section><div class="page-heading"><div><h1>商品库</h1><p>团队已经开始考虑实际制作的具体游戏内商品。</p></div><button class="primary" @click="showCreate = true">创建商品</button></div><form class="toolbar" @submit.prevent="load()"><input v-model="query" placeholder="搜索名称、公司、分类或描述" /><button class="secondary">搜索</button><div ref="filterControl" class="filter-control"><button ref="filterButton" type="button" class="secondary filter-button" :class="{ active: activeFilterCount }" aria-label="筛选商品" :aria-expanded="showFilters" aria-controls="product-filter-popover" @click="toggleFilters"><svg class="filter-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h18l-7 8v6l-4 2v-8L3 4Z" /></svg><span v-if="activeFilterCount" class="filter-count">{{ activeFilterCount }}</span></button><div v-if="showFilters" id="product-filter-popover" ref="filterPopover" class="filter-popover" role="dialog" aria-label="商品筛选"><div class="filter-popover-layout"><nav class="filter-category-list" aria-label="筛选分类"><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'company' }" :aria-pressed="activeFilterCategory === 'company'" @click="activeFilterCategory = 'company'"><span>所属公司</span><span v-if="company.length" class="filter-category-dot" aria-hidden="true"></span></button><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'category' }" :aria-pressed="activeFilterCategory === 'category'" @click="activeFilterCategory = 'category'"><span>商品分类</span><span v-if="category.length" class="filter-category-dot" aria-hidden="true"></span></button><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'attribute' }" :aria-pressed="activeFilterCategory === 'attribute'" @click="activeFilterCategory = 'attribute'"><span>动态属性分类</span><span v-if="attribute.length" class="filter-category-dot" aria-hidden="true"></span></button><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'status' }" :aria-pressed="activeFilterCategory === 'status'" @click="activeFilterCategory = 'status'"><span>制作状态</span><span v-if="status.length" class="filter-category-dot" aria-hidden="true"></span></button></nav><div class="filter-options-pane"><ProductFilterGroup v-if="activeFilterCategory === 'company'" v-model="company" label="所属公司" all-label="全部公司" :options="filterOptions.companies" @update:model-value="load()" /><ProductFilterGroup v-else-if="activeFilterCategory === 'category'" v-model="category" label="商品分类" all-label="全部分类" :options="filterOptions.categories" @update:model-value="load()" /><ProductFilterGroup v-else-if="activeFilterCategory === 'attribute'" v-model="attribute" label="动态属性分类" all-label="全部属性分类" :options="filterOptions.attributes" @update:model-value="load()" /><ProductFilterGroup v-else v-model="status" label="制作状态" all-label="全部状态" :options="statusOptions" @update:model-value="load()" /></div></div><div class="filter-popover-actions"><button type="button" class="button-link" :disabled="!activeFilterCount" @click="clearFilters">清除筛选</button><button type="button" class="secondary small" @click="showFilters = false">完成</button></div></div></div></form><p v-if="error" class="error-text">{{ error }} <button class="button-link" @click="load(products.length === 0)">重试</button></p><p v-if="loading" class="muted">读取中…</p><div v-else-if="products.length" class="product-grid"><article v-for="product in products" :key="product.id" class="product-card"><img v-if="product.attachments.length" class="product-cover" :src="product.attachments[0].thumbnail_url || product.attachments[0].url" alt="" loading="lazy" /><div class="product-card-content"><h2><RouterLink :to="`/products/${product.id}`">{{ productTitle(product) }}</RouterLink></h2><p v-if="product.english_name && product.chinese_name" class="product-english-name">{{ product.english_name }}</p><p v-if="product.company" class="product-company">{{ product.company }}</p><div class="product-meta"><span v-if="product.category">分类：{{ product.category }}</span><span class="status-badge">{{ statusLabels[product.development_status] }}</span></div></div></article></div><div v-else class="empty-state">还没有商品。可以在这里创建，也可以从一条灵感主动创建。</div><div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div></section>
+<template><section><div class="page-heading"><div><h1>商品库</h1><p>团队已经开始考虑实际制作的具体游戏内商品。</p></div><button class="primary" @click="showCreate = true">创建商品</button></div><form class="toolbar" @submit.prevent="searchNow"><input v-model="query" type="search" aria-label="搜索商品" placeholder="搜索名称、公司、分类或描述" /><div ref="filterControl" class="filter-control"><button ref="filterButton" type="button" class="secondary filter-button" :class="{ active: activeFilterCount }" aria-label="筛选商品" :aria-expanded="showFilters" aria-controls="product-filter-popover" @click="toggleFilters"><svg class="filter-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h18l-7 8v6l-4 2v-8L3 4Z" /></svg><span v-if="activeFilterCount" class="filter-count">{{ activeFilterCount }}</span></button><div v-if="showFilters" id="product-filter-popover" ref="filterPopover" class="filter-popover" role="dialog" aria-label="商品筛选"><div class="filter-popover-layout"><nav class="filter-category-list" aria-label="筛选分类"><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'company' }" :aria-pressed="activeFilterCategory === 'company'" @click="activeFilterCategory = 'company'"><span>所属公司</span><span v-if="company.length" class="filter-category-dot" aria-hidden="true"></span></button><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'category' }" :aria-pressed="activeFilterCategory === 'category'" @click="activeFilterCategory = 'category'"><span>商品分类</span><span v-if="category.length" class="filter-category-dot" aria-hidden="true"></span></button><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'attribute' }" :aria-pressed="activeFilterCategory === 'attribute'" @click="activeFilterCategory = 'attribute'"><span>动态属性分类</span><span v-if="attribute.length" class="filter-category-dot" aria-hidden="true"></span></button><button type="button" class="filter-category" :class="{ active: activeFilterCategory === 'status' }" :aria-pressed="activeFilterCategory === 'status'" @click="activeFilterCategory = 'status'"><span>制作状态</span><span v-if="status.length" class="filter-category-dot" aria-hidden="true"></span></button></nav><div class="filter-options-pane"><ProductFilterGroup v-if="activeFilterCategory === 'company'" v-model="company" label="所属公司" all-label="全部公司" :options="filterOptions.companies" @update:model-value="load()" /><ProductFilterGroup v-else-if="activeFilterCategory === 'category'" v-model="category" label="商品分类" all-label="全部分类" :options="filterOptions.categories" @update:model-value="load()" /><ProductFilterGroup v-else-if="activeFilterCategory === 'attribute'" v-model="attribute" label="动态属性分类" all-label="全部属性分类" :options="filterOptions.attributes" @update:model-value="load()" /><ProductFilterGroup v-else v-model="status" label="制作状态" all-label="全部状态" :options="statusOptions" @update:model-value="load()" /></div></div><div class="filter-popover-actions"><button type="button" class="button-link" :disabled="!activeFilterCount" @click="clearFilters">清除筛选</button><button type="button" class="secondary small" @click="showFilters = false">完成</button></div></div></div></form><p v-if="error" class="error-text">{{ error }} <button class="button-link" @click="load(products.length === 0)">重试</button></p><p v-if="loading && !products.length" class="muted">读取中…</p><div v-else-if="products.length" class="product-grid"><article v-for="product in products" :key="product.id" class="product-card"><img v-if="product.attachments.length" class="product-cover" :src="product.attachments[0].thumbnail_url || product.attachments[0].url" alt="" loading="lazy" /><div class="product-card-content"><h2><RouterLink :to="`/products/${product.id}`">{{ productTitle(product) }}</RouterLink></h2><p v-if="product.english_name && product.chinese_name" class="product-english-name">{{ product.english_name }}</p><p v-if="product.company" class="product-company">{{ product.company }}</p><div class="product-meta"><span v-if="product.category">分类：{{ product.category }}</span><span class="status-badge">{{ statusLabels[product.development_status] }}</span></div></div></article></div><div v-else class="empty-state">还没有商品。可以在这里创建，也可以从一条灵感主动创建。</div><div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div></section>
   <div v-if="showCreate" class="modal-backdrop"><form class="modal" @submit.prevent="create"><h2>创建商品</h2><div class="field"><label for="product-name">商品中文名（可留空）</label><input id="product-name" v-model="form.chinese_name" maxlength="160" autofocus /></div><div class="field"><label>商品英文名（可留空）</label><input v-model="form.english_name" maxlength="160" /></div><div class="field"><label>所属公司（可留空）</label><input v-model="form.company" maxlength="160" /></div><div class="field"><label>商品分类（可留空）</label><input v-model="form.category" maxlength="100" /></div><div class="field"><label>描述</label><textarea v-model="form.description" rows="5"></textarea></div><div class="field"><label>制作状态</label><select v-model="form.development_status"><option v-for="key in ['concept','design','production','completed']" :key="key" :value="key">{{ statusLabels[key] }}</option></select></div><div class="modal-actions"><button type="button" class="secondary" @click="showCreate = false">取消</button><button class="primary" :disabled="busy">创建商品</button></div></form></div>
 </template>
