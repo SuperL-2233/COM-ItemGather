@@ -19,25 +19,78 @@ function changeLayout(value: 'list' | 'grid') {
   try { localStorage.setItem('com-itemgather:product-layout', value) } catch { /* Keep the selection for this visit. */ }
 }
 const sortGroups = [
-  { label: '中文名称（按拼音，无中文名置后）', options: [
-    { value: 'name_asc', label: '中文名称 · 正序（A → Z）' },
-    { value: 'name_desc', label: '中文名称 · 倒序（Z → A）' },
+  { label: '名称', options: [
+    { value: 'name_asc', label: '正序' },
+    { value: 'name_desc', label: '倒序' },
   ] },
   { label: '修改时间', options: [
-    { value: 'updated_desc', label: '修改时间 · 倒序（最新在前）' },
-    { value: 'updated_asc', label: '修改时间 · 正序（最早在前）' },
+    { value: 'updated_desc', label: '倒序' },
+    { value: 'updated_asc', label: '正序' },
   ] },
   { label: '创建时间', options: [
-    { value: 'created_desc', label: '创建时间 · 倒序（最新在前）' },
-    { value: 'created_asc', label: '创建时间 · 正序（最早在前）' },
+    { value: 'created_desc', label: '倒序' },
+    { value: 'created_asc', label: '正序' },
   ] },
 ] as const
 type ProductSort = (typeof sortGroups)[number]['options'][number]['value']
+const sortOptions = sortGroups.flatMap(group => group.options.map(option => ({ ...option, group: group.label })))
 const sort = ref<ProductSort>('created_desc')
+const sortOpen = ref(false)
+const sortControl = ref<HTMLElement>()
+const sortTrigger = ref<HTMLButtonElement>()
+const activeSort = ref(0)
+const selectedSort = computed(() => sortOptions.find(option => option.value === sort.value)!)
 try {
   const stored = localStorage.getItem('com-itemgather:product-sort')
   if (sortGroups.some(group => group.options.some(option => option.value === stored))) sort.value = stored as ProductSort
 } catch { /* Use the default when storage is unavailable. */ }
+function focusActiveSort() {
+  document.getElementById(`product-sort-${sortOptions[activeSort.value].value}`)?.focus()
+}
+async function openSort() {
+  activeSort.value = Math.max(0, sortOptions.findIndex(option => option.value === sort.value))
+  sortOpen.value = true
+  await nextTick()
+  focusActiveSort()
+}
+function closeSort(restoreFocus = false) {
+  sortOpen.value = false
+  if (restoreFocus) void nextTick(() => sortTrigger.value?.focus())
+}
+function chooseSort(value: ProductSort) {
+  sort.value = value
+  closeSort(true)
+}
+function moveSort(delta: number) {
+  activeSort.value = (activeSort.value + delta + sortOptions.length) % sortOptions.length
+  void nextTick(focusActiveSort)
+}
+function sortKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    event.stopPropagation()
+    if (sortOpen.value) moveSort(event.key === 'ArrowDown' ? 1 : -1)
+    else void openSort()
+  } else if (sortOpen.value && (event.key === 'Home' || event.key === 'End')) {
+    event.preventDefault()
+    activeSort.value = event.key === 'Home' ? 0 : sortOptions.length - 1
+    void nextTick(focusActiveSort)
+  } else if (sortOpen.value && (event.key === 'Enter' || event.key === ' ') && event.target !== sortTrigger.value) {
+    event.preventDefault()
+    chooseSort(sortOptions[activeSort.value].value)
+  } else if (sortOpen.value && event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeSort(true)
+  } else if (sortOpen.value && event.key === 'Tab') closeSort()
+}
+function sortOutside(event: MouseEvent) {
+  if (sortOpen.value && sortControl.value && !event.composedPath().includes(sortControl.value)) closeSort()
+}
+function sortFocusOut(event: FocusEvent) {
+  if (sortOpen.value && event.relatedTarget && !sortControl.value?.contains(event.relatedTarget as Node)) closeSort()
+}
 const filterOptions = ref<ProductFilterOptions>({ companies: [], categories: [], attributes: [], statuses: [{value:'concept',label:'构思中'},{value:'design',label:'设计中'},{value:'production',label:'制作中'},{value:'completed',label:'已完成'}] })
 const filters = ref<Record<string, string[]>>({ company: [], category: [], attribute: [], status: [] })
 const filterGroups = computed(() => [
@@ -128,6 +181,7 @@ onMounted(() => {
     if (entries.some(entry => entry.isIntersecting)) void load(false)
   }, { rootMargin: '600px 0px' })
   if (loadMoreTrigger.value) observer.observe(loadMoreTrigger.value)
+  document.addEventListener('click', sortOutside)
   refresh()
 })
 onUnmounted(() => {
@@ -135,6 +189,7 @@ onUnmounted(() => {
   clearTimeout(searchTimer)
   requestController?.abort()
   observer?.disconnect()
+  document.removeEventListener('click', sortOutside)
 })
 useEvents(refresh)
 </script>
@@ -158,14 +213,22 @@ useEvents(refresh)
     <div class="product-results-bar">
       <p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件商品` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p>
       <div class="product-browse-controls">
-        <label class="product-sort">
+        <div ref="sortControl" class="product-sort" @keydown="sortKeydown" @focusout="sortFocusOut">
           <span>排序</span>
-          <select v-model="sort" aria-label="商品排序">
-            <optgroup v-for="group in sortGroups" :key="group.label" :label="group.label">
-              <option v-for="option in group.options" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </optgroup>
-          </select>
-        </label>
+          <button ref="sortTrigger" type="button" class="product-sort-trigger" role="combobox" aria-label="商品排序" aria-haspopup="listbox" aria-controls="product-sort-options" :aria-expanded="sortOpen" :data-value="sort" @click="sortOpen ? closeSort() : openSort()">
+            <span>{{ selectedSort.group }} · {{ selectedSort.label }}</span>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+          </button>
+          <div v-if="sortOpen" id="product-sort-options" class="product-sort-menu" role="listbox" aria-label="商品排序方式">
+            <div v-for="group in sortGroups" :key="group.label" role="group" :aria-label="group.label">
+              <span class="product-sort-group" aria-hidden="true">{{ group.label }}</span>
+              <button v-for="option in group.options" :id="`product-sort-${option.value}`" :key="option.value" type="button" role="option" tabindex="-1" class="product-sort-option" :class="{ 'is-active': sortOptions[activeSort].value === option.value }" :aria-label="`${group.label} · ${option.label}`" :aria-selected="sort === option.value" @click="chooseSort(option.value)" @mouseenter="activeSort = sortOptions.findIndex(item => item.value === option.value)">
+                <span>{{ option.label }}</span>
+                <svg v-if="sort === option.value" viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7" /></svg>
+              </button>
+            </div>
+          </div>
+        </div>
         <div class="product-view-switch" role="group" aria-label="商品展示方式">
           <button type="button" :aria-pressed="layout === 'list'" @click="changeLayout('list')"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10M3 5h.5M3 10h.5M3 15h.5" /></svg>列表</button>
           <button type="button" :aria-pressed="layout === 'grid'" @click="changeLayout('grid')"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1" /><rect x="12" y="3" width="5" height="5" rx="1" /><rect x="3" y="12" width="5" height="5" rx="1" /><rect x="12" y="12" width="5" height="5" rx="1" /></svg>卡片</button>
@@ -201,9 +264,18 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-result-count{margin:0;color:var(--muted);font-size:.82rem;line-height:1.5}
 .product-result-count>span{font-size:.75rem}
 .product-browse-controls{display:flex;align-items:center;gap:.75rem;margin-left:auto;min-width:0}
-.product-sort{display:flex;align-items:center;gap:.5rem;color:var(--muted);font-size:.78rem;min-width:0}
+.product-sort{position:relative;display:flex;align-items:center;gap:.5rem;color:var(--muted);font-size:.78rem;min-width:0}
 .product-sort>span{flex:none}
-.product-sort>select{min-width:0;max-width:100%;padding:.45rem .55rem;font-size:.78rem;min-height:2.2rem;color:var(--text)}
+.product-sort-trigger{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0;min-height:2.2rem;padding:.45rem .6rem;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-size:.78rem;white-space:nowrap}
+.product-sort-trigger:hover{border-color:var(--accent)}
+.product-sort-trigger>svg{width:.85rem;height:.85rem;transition:transform .15s}
+.product-sort-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}
+.product-sort-menu{position:absolute;top:calc(100% + .35rem);right:0;z-index:40;min-width:100%;padding:.35rem;border:1px solid var(--border);border-radius:9px;background:var(--surface);box-shadow:var(--shadow)}
+.product-sort-group{display:block;padding:.45rem .55rem .25rem;color:var(--muted);font-size:.72rem}
+.product-sort-option{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;min-width:9rem;padding:.55rem .65rem;border-radius:5px;background:transparent;color:var(--text);font-size:.82rem;text-align:left}
+.product-sort-option:hover,.product-sort-option.is-active{background:var(--surface-soft)}
+.product-sort-option[aria-selected=true]{color:var(--accent);font-weight:600}
+.product-sort-option>svg{width:.95rem;height:.95rem}
 .product-view-switch{display:flex;gap:.2rem;padding:.2rem;border:1px solid var(--border);border-radius:7px;background:var(--surface-soft);flex:none}
 .product-view-switch button{display:flex;align-items:center;gap:.35rem;padding:.35rem .6rem;border-radius:4px;background:transparent;color:var(--muted);font-size:.78rem}
 .product-view-switch button[aria-pressed=true]{background:var(--surface);color:var(--text);box-shadow:0 1px 3px #0001}
@@ -214,5 +286,5 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-list-header{display:grid;grid-template-columns:var(--catalog-columns);gap:var(--catalog-gap);padding:.8rem 1.1rem;background:var(--surface-soft);border-radius:8px 8px 0 0;color:var(--muted);font-size:.75rem}
 .product-catalog.is-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start}
 @media(max-width:900px){.product-catalog{--catalog-gap:.8rem;--catalog-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,.8fr) minmax(5rem,.8fr)}.product-catalog.is-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:600px){.product-list-header{display:none}.product-catalog.is-grid{grid-template-columns:1fr;gap:.75rem}.product-result-count>span{display:block}.product-view-switch button{padding:.35rem .5rem}.product-toolbar{margin-top:1rem}.product-results-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem}.product-result-count{grid-column:1;grid-row:1}.product-browse-controls{display:contents}.product-view-switch{grid-column:2;grid-row:1}.product-sort{grid-column:1/-1;grid-row:2}.product-sort>select{flex:1;width:100%;min-height:2.65rem}}
+@media(max-width:600px){.product-list-header{display:none}.product-catalog.is-grid{grid-template-columns:1fr;gap:.75rem}.product-result-count>span{display:block}.product-view-switch button{padding:.35rem .5rem}.product-toolbar{margin-top:1rem}.product-results-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem}.product-result-count{grid-column:1;grid-row:1}.product-browse-controls{display:contents}.product-view-switch{grid-column:2;grid-row:1}.product-sort{grid-column:1/-1;grid-row:2;width:100%}.product-sort-trigger{flex:1;width:100%;min-height:2.65rem}.product-sort-menu{left:0;right:0}.product-sort-option{min-width:0;min-height:2.65rem}}
 </style>
