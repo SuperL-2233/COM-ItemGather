@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import StatusBadge from './StatusBadge.vue'
 import type { RecipeGroup } from '../types'
 import { developmentStatusLabel, productTitle } from '../utils'
 
 const props = defineProps<{ group: RecipeGroup; layout: 'list' | 'grid' }>()
 const cover = computed(() => props.group.output.attachments[0])
 const pending = computed(() => !props.group.recipes.length || props.group.recipes.some(recipe => !recipe.ingredients.length))
-const status = computed(() => ['concept', 'design', 'production', 'completed'].includes(props.group.output.development_status) ? props.group.output.development_status : 'custom')
 </script>
 
 <template>
@@ -25,7 +25,7 @@ const status = computed(() => ['concept', 'design', 'production', 'completed'].i
     <div class="recipe-count"><span class="recipe-field-label">配方数量</span><span>{{ group.recipes.length }} 套配方</span><small v-if="pending" class="muted">待补充</small></div>
     <div class="recipe-status">
       <span class="recipe-field-label">制作状态</span>
-      <span v-if="layout === 'list' || group.output.deleted_at" class="recipe-status-badge" :class="group.output.deleted_at ? 'is-deleted' : `is-${status}`">{{ group.output.deleted_at ? '产物已删除' : developmentStatusLabel(group.output) }}</span>
+      <span v-if="group.output.deleted_at" class="recipe-status-badge is-deleted">产物已删除</span><StatusBadge v-else-if="layout === 'list'" class="recipe-status-label" :label="developmentStatusLabel(group.output)" :color="group.output.development_status_color" />
     </div>
   </article>
 </template>
@@ -50,12 +50,7 @@ const status = computed(() => ['concept', 'design', 'production', 'completed'].i
 .recipe-status{grid-area:status;min-width:0}
 .recipe-status-badge{--status-color:var(--muted);display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border-radius:5px;background:color-mix(in srgb,var(--status-color) 10%,var(--surface));color:var(--status-color);font-size:.75rem;line-height:1.4;overflow-wrap:anywhere;max-width:100%}
 .recipe-status-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
-.recipe-status-badge.is-design{--status-color:#3d65a5}
-.recipe-status-badge.is-production{--status-color:#8c611c}
-.recipe-status-badge.is-completed{--status-color:var(--accent)}
 .recipe-status-badge.is-deleted{--status-color:var(--danger)}
-:root[data-theme="dark"] .recipe-status-badge.is-design{--status-color:#a0bfee}
-:root[data-theme="dark"] .recipe-status-badge.is-production{--status-color:#e7bd78}
 .recipe-catalog-item.is-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"identity identity" "type count" "status status";gap:.8rem;padding:1.1rem;border-radius:9px;align-items:start}
 .is-grid .recipe-identity{flex-direction:column;align-items:stretch;gap:1rem}
 .is-grid .recipe-visual{width:calc(100% + 2.2rem);height:auto;aspect-ratio:16/9;margin:-1.1rem -1.1rem 0;border:0;border-bottom:1px solid var(--border);border-radius:8px 8px 0 0}
@@ -68,6 +63,6 @@ const status = computed(() => ['concept', 'design', 'production', 'completed'].i
   .is-list .recipe-identity{gap:.65rem;margin-bottom:.15rem}
   .is-list .recipe-type,.is-list .recipe-count{margin-left:calc(44px + .65rem)}
   .is-list .recipe-status{align-self:end}
-  .is-list .recipe-status-badge{max-width:7rem}
+  .is-list .recipe-status-badge,.is-list .recipe-status-label{max-width:7rem}
 }
 </style>

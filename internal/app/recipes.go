@@ -34,7 +34,7 @@ func loadRecipe(ctx context.Context, q querier, id string, deleted bool) (Recipe
 	if !deleted {
 		where = " AND deleted_at IS NULL"
 	}
-	err := q.QueryRowContext(ctx, `SELECT id,group_id,name,output_quantity,notes,verification,COALESCE(status_option_id,development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(recipes.status_option_id,recipes.development_status)),development_status),version,created_by,created_at,updated_at,COALESCE(deleted_at,'') FROM recipes WHERE id=?`+where, id).Scan(&item.ID, &item.GroupID, &item.Name, &item.OutputQuantity, &item.Notes, &item.Verification, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.Version, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.DeletedAt)
+	err := q.QueryRowContext(ctx, `SELECT id,group_id,name,output_quantity,notes,verification,COALESCE(status_option_id,development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(recipes.status_option_id,recipes.development_status)),development_status),COALESCE((SELECT color FROM product_statuses WHERE id=COALESCE(recipes.status_option_id,recipes.development_status)),'#7c3aed'),version,created_by,created_at,updated_at,COALESCE(deleted_at,'') FROM recipes WHERE id=?`+where, id).Scan(&item.ID, &item.GroupID, &item.Name, &item.OutputQuantity, &item.Notes, &item.Verification, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.Version, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.DeletedAt)
 	if err != nil {
 		return item, ensureNoRows(err)
 	}

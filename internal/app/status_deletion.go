@@ -106,7 +106,7 @@ func (a *App) deleteProductStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Replacement == "" {
-		err = tx.QueryRowContext(r.Context(), "SELECT id FROM product_statuses WHERE id<>? AND deleted_at IS NULL ORDER BY position,created_at,id LIMIT 1", usage.ID).Scan(&body.Replacement)
+		err = tx.QueryRowContext(r.Context(), "SELECT id FROM product_statuses WHERE id<>? AND deleted_at IS NULL ORDER BY (id='concept') DESC,position,created_at,id LIMIT 1", usage.ID).Scan(&body.Replacement)
 		if err != nil {
 			writeError(w, err)
 			return

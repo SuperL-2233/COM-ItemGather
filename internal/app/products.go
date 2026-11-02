@@ -24,7 +24,7 @@ type productFields struct {
 	Attributes        []Attribute  `json:"attributes"`
 }
 
-const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,COALESCE(p.status_option_id,p.development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),p.development_status),p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
+const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,COALESCE(p.status_option_id,p.development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),p.development_status),COALESCE((SELECT color FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),'#7c3aed'),p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
 
 func loadProduct(ctx context.Context, q querier, id string, deleted, related bool) (Product, error) {
 	clause := "WHERE p.id=?"
@@ -33,7 +33,7 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	}
 	var item Product
 	var removed, toolJSON string
-	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount)
+	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount)
 	if err != nil {
 		return item, ensureNoRows(err)
 	}
@@ -196,7 +196,7 @@ func (a *App) listProductFilters(w http.ResponseWriter, r *http.Request) {
 		query string
 	}{
 		{"companies", "SELECT DISTINCT company FROM products WHERE item_kind='product' AND deleted_at IS NULL AND company<>'' ORDER BY company COLLATE NOCASE"},
-		{"categories", "SELECT DISTINCT category FROM products WHERE item_kind='product' AND deleted_at IS NULL AND category<>'' ORDER BY category COLLATE NOCASE"},
+		{"categories", "SELECT c.name FROM product_categories c WHERE c.deleted_at IS NULL AND EXISTS(SELECT 1 FROM products p WHERE p.item_kind='product' AND p.deleted_at IS NULL AND p.category=c.name COLLATE NOCASE) ORDER BY c.position,c.name COLLATE NOCASE"},
 		{"attributes", "SELECT DISTINCT pa.key FROM product_attributes pa JOIN products p ON p.id=pa.product_id WHERE p.item_kind='product' AND p.deleted_at IS NULL AND pa.key<>'' ORDER BY pa.key COLLATE NOCASE"},
 	}
 	for _, item := range queries {
@@ -354,7 +354,7 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item Product
 		var removed, toolJSON string
-		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount); err != nil {
+		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount); err != nil {
 			rows.Close()
 			writeError(w, err)
 			return

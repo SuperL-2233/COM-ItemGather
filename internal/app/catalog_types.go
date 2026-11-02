@@ -41,6 +41,7 @@ type Ingredient struct {
 	Item      *Product `json:"item,omitempty"`
 }
 type Recipe struct {
+	DevelopmentStatusColor string       `json:"development_status_color"`
 	DevelopmentStatusLabel string       `json:"development_status_label"`
 	ID                     string       `json:"id"`
 	GroupID                string       `json:"group_id"`

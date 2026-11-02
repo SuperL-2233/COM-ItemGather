@@ -8,7 +8,7 @@ const props = withDefaults(defineProps<{
   label: string
   options: SearchOption[]
   createLabel: string
-  create: (name: string) => Promise<SearchOption>
+  create?: (name: string) => Promise<SearchOption>
   searchLabel?: string
   newLabel?: string
   fallback?: string
@@ -20,7 +20,9 @@ const props = withDefaults(defineProps<{
   fullDetails?: boolean
   allowRemove?: boolean
   removeNoun?: string
-}>(), { allowEmpty: true, emptyLabel: '未设置', maxLength: 100, removeNoun: '分类' })
+  allowCreate?: boolean
+  compact?: boolean
+}>(), { allowEmpty: true, emptyLabel: '未设置', maxLength: 100, removeNoun: '分类', allowCreate: true })
 const emit = defineEmits<{ details: [name: string]; retry: []; remove: [option: SearchOption] }>()
 const id = useId()
 const root = ref<HTMLElement>()
@@ -43,8 +45,8 @@ const filtered = computed(() => {
   return props.options.filter(option => (option.searchText || option.label).toLocaleLowerCase().includes(needle))
 })
 const rows = computed<(SearchOption & { kind: string })[]>(() => [
-  { kind: 'create', value: '', label: props.createLabel },
-  ...(props.allowEmpty ? [{ kind: 'empty', value: '', label: props.emptyLabel }] : []),
+  ...(props.allowCreate ? [{ kind: 'create', value: '', label: props.createLabel }] : []),
+  ...(props.allowEmpty && (!props.compact || !query.value.trim()) ? [{ kind: 'empty', value: '', label: props.emptyLabel }] : []),
   ...filtered.value.map(option => ({ ...option, kind: 'option' })),
 ])
 // Keep the search draft when real-time updates change the selected value.
@@ -70,6 +72,7 @@ async function select(selectedValue: string) {
   trigger.value?.focus()
 }
 async function startCreate() {
+  if (!props.allowCreate || !props.create) return
   adding.value = true
   name.value = query.value.trim()
   localError.value = ''
@@ -88,7 +91,7 @@ async function cancelCreate() {
   searchInput.value?.focus()
 }
 async function createOption() {
-  if (!name.value.trim() || busy.value) return
+  if (!name.value.trim() || busy.value || !props.create) return
   busy.value = true
   localError.value = ''
   try {
@@ -174,9 +177,9 @@ defineExpose({ select, focus: () => trigger.value?.focus() })
 </script>
 
 <template>
-  <div ref="root" class="search-create-select" @focusout="focusOut" @keydown="rootKeydown">
-    <button v-if="!open" ref="trigger" type="button" class="select-trigger" :aria-label="label" aria-haspopup="listbox" :aria-expanded="false" @click="expand" @keydown.down.prevent="expand" @keydown.up.prevent="expand">
-      <span>{{ display }}</span><span aria-hidden="true">⌄</span>
+  <div ref="root" class="search-create-select" :class="{ 'compact-select': compact }" @focusout="focusOut" @keydown="rootKeydown">
+    <button v-if="!open" ref="trigger" type="button" class="select-trigger" :aria-label="label" :title="display" aria-haspopup="listbox" :aria-expanded="false" @click="expand" @keydown.down.prevent="expand" @keydown.up.prevent="expand">
+      <span class="choice-selected"><span v-if="selected?.color" class="choice-color-dot" :style="{ backgroundColor: selected.color }" aria-hidden="true"></span><span>{{ display }}</span></span><span aria-hidden="true">⌄</span>
     </button>
     <input v-else ref="searchInput" v-model="query" class="select-search-input" role="combobox" :aria-label="searchLabel || `搜索${label}`" aria-autocomplete="list" aria-haspopup="listbox" :aria-expanded="true" :aria-controls="`${id}-options`" :aria-activedescendant="active >= 0 ? `${id}-option-${active}` : undefined" :placeholder="display" autocomplete="off" @keydown="keydown" />
     <div v-if="open" class="search-select-panel" :class="{ 'open-above': above }" :style="{ maxHeight: `${panelHeight}px` }">
@@ -196,8 +199,9 @@ defineExpose({ select, focus: () => trigger.value?.focus() })
             <template v-if="row.kind === 'create'"><span>{{ createLabel }}</span></template>
             <template v-else-if="row.kind === 'empty'"><span>{{ emptyLabel }}</span></template>
             <template v-else>
+              <span v-if="row.color" class="choice-color-dot" :style="{ backgroundColor: row.color }" aria-hidden="true"></span>
               <img v-if="row.image" :src="row.image" alt="" class="company-logo-mini" />
-              <span><strong>{{ row.label }}</strong><small v-if="row.description">{{ row.description }}</small></span>
+              <span :title="row.label"><strong>{{ row.label }}</strong><small v-if="row.description">{{ row.description }}</small></span>
               <span v-if="value === row.value" aria-hidden="true">✓</span>
             </template>
           </button>
@@ -205,10 +209,27 @@ defineExpose({ select, focus: () => trigger.value?.focus() })
           </div>
         </template>
         <p v-if="loading" class="muted choice-hint">读取选项中…</p>
-        <p v-else-if="!filtered.length" class="muted choice-hint">没有匹配选项，可通过“＋”创建。</p>
+        <p v-else-if="!filtered.length" class="muted choice-hint">{{ allowCreate ? '没有匹配选项，可通过“＋”创建。' : '没有匹配选项。' }}</p>
       </div>
       <p v-if="allowRemove && filtered.length" class="muted choice-hint">选中{{ removeNoun }}后也可按 Shift+Delete 删除。</p>
       <p v-if="localError || error" class="error-text choice-hint" role="alert">{{ localError || error }} <button v-if="error" type="button" class="button-link" @click="emit('retry')">重试</button></p>
+      <div v-if="$slots.footer" class="choice-footer"><slot name="footer" /></div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.choice-selected{display:flex;align-items:center;gap:.5rem;min-width:0;flex:1}
+.choice-selected>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.choice-color-dot{width:8px;height:8px;flex:none!important;border-radius:50%;background:var(--muted);box-shadow:0 0 0 1px color-mix(in srgb,var(--text) 15%,transparent)}
+.choice-row>.choice-color-dot+span{flex:1;min-width:0}
+.choice-footer{border-top:1px solid var(--border);padding:.55rem .3rem .1rem;font-size:.78rem}
+.compact-select .search-select-panel{padding:.3rem}
+.compact-select .choice-list{max-height:220px;overflow-y:auto}
+.compact-select .choice-option-row{margin-bottom:.1rem}
+.compact-select .choice-row{border:0;border-radius:5px;min-height:2.1rem;padding:.4rem .55rem;gap:.55rem;font-size:.86rem}
+.compact-select .choice-row:hover{background:var(--surface-soft)}
+.compact-select .choice-row strong{font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.compact-select .choice-row[aria-selected=true]{color:var(--accent);background:var(--surface-soft)}
+.compact-select .select-trigger{padding:.55rem .7rem}
+</style>

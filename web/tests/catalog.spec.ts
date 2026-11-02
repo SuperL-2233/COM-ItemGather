@@ -145,7 +145,7 @@ test('配方面板分组、商品道具混用材料、数量合并和同产物�
   const first = page.locator('.recipe-editor').first()
   await first.getByLabel('条件／备注', { exact: true }).fill('尚未保存的本地配方修改')
   const me = await (await page.request.get('/api/auth/me')).json()
-  const remote = await page.request.patch(`/api/recipes/${group.recipes[0].id}`, { headers: { 'X-CSRF-Token': me.csrf_token }, data: { ...group.recipes[0], id: undefined, group_id: undefined, created_by: undefined, created_at: undefined, updated_at: undefined, development_status_label: undefined, notes: '其他成员的配方修改', ingredients: group.recipes[0].ingredients.map((i: { product_id: string; category: string; quantity: number }) => ({ product_id: i.product_id, category: i.category, quantity: i.quantity })) } })
+  const remote = await page.request.patch(`/api/recipes/${group.recipes[0].id}`, { headers: { 'X-CSRF-Token': me.csrf_token }, data: { ...group.recipes[0], id: undefined, group_id: undefined, created_by: undefined, created_at: undefined, updated_at: undefined, development_status_label: undefined, development_status_color: undefined, notes: '其他成员的配方修改', ingredients: group.recipes[0].ingredients.map((i: { product_id: string; category: string; quantity: number }) => ({ product_id: i.product_id, category: i.category, quantity: i.quantity })) } })
   expect(remote.ok(), await remote.text()).toBeTruthy()
   await expect(first.getByText('这套配方已有新修改，保存时会展示差异。', { exact: true })).toBeVisible()
   await expect(first.getByLabel('条件／备注', { exact: true })).toHaveValue('尚未保存的本地配方修改')

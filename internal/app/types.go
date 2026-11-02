@@ -88,6 +88,7 @@ type Idea struct {
 }
 
 type Product struct {
+	DevelopmentStatusColor string       `json:"development_status_color"`
 	DevelopmentStatusLabel string       `json:"development_status_label"`
 	ItemKind               string       `json:"item_kind"`
 	CompanyID              string       `json:"company_id"`

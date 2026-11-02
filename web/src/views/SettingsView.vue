@@ -10,14 +10,14 @@ const catalogTrashKinds = ['tools','companies','recipes','recipe-groups'] as con
 type CatalogTrashKind = typeof catalogTrashKinds[number]
 const trashNames: Record<CatalogTrashKind,string> = { tools:'道具', companies:'公司', recipes:'配方', 'recipe-groups':'合成产物' }
 const trash = ref<{ ideas: Idea[]; products: Product[]; tools: Product[]; companies: Company[]; recipes: Recipe[]; recipe_groups: RecipeGroup[] }>({ ideas: [], products: [], tools: [], companies: [], recipes: [], recipe_groups: [] }); const status = ref<SystemStatus>(); const error = ref(''); const busy = ref(false); const inviteURL = ref(''); const resetURL = ref(''); const backupPath = ref('')
-const tabs = [['profile','个人资料'],['devices','登录设备'],['admin','账号与邀请'],['tags','标签维护'],['trash','回收站'],['data','数据与系统']]
+const tabs = [['profile','个人资料'],['devices','登录设备'],['options','选项管理'],['admin','账号与邀请'],['tags','标签维护'],['trash','回收站'],['data','数据与系统']]
 async function run(action: () => Promise<void>) { error.value = ''; busy.value = true; try { await action() } catch (e) { error.value = (e as Error).message } finally { busy.value = false } }
 async function loadDevices() { sessions.value = (await api<{ items: Session[] }>('/sessions')).items }
 async function loadAdmin() { const [userResult,inviteResult] = await Promise.all([api<{ items: User[] }>('/admin/users'),api<{ items: any[] }>('/admin/invitations')]); users.value = userResult.items; invitations.value = inviteResult.items }
 async function loadTags() { tags.value = (await api<{ items: any[] }>('/tags')).items }
 async function loadTrash() { trash.value = await api('/trash') }
 async function loadStatus() { status.value = await api('/system/status') }
-async function switchTab(value: string) { tab.value = value; error.value = ''; await run(async () => { if (value === 'devices') await loadDevices(); if (value === 'admin' && auth.user?.role === 'admin') await loadAdmin(); if (value === 'tags') await loadTags(); if (value === 'trash') await loadTrash(); if (value === 'data') await loadStatus() }) }
+async function switchTab(value: string) { if (value === 'options') { await router.push('/settings/options'); return }; tab.value = value; error.value = ''; await run(async () => { if (value === 'devices') await loadDevices(); if (value === 'admin' && auth.user?.role === 'admin') await loadAdmin(); if (value === 'tags') await loadTags(); if (value === 'trash') await loadTrash(); if (value === 'data') await loadStatus() }) }
 async function saveProfile() { await run(async () => { const result = await api<{ user: User }>('/auth/profile', { method: 'PATCH', body: JSON.stringify({ nickname: nickname.value }) }); auth.user = result.user; toast('昵称已更新') }) }
 async function changePassword() { if (newPassword.value.length < 10) { error.value = '新密码至少 10 个字符'; return }; await run(async () => { await api('/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password: currentPassword.value, new_password: newPassword.value, revoke_others: revokeOnPassword.value }) }); currentPassword.value = ''; newPassword.value = ''; toast('密码已修改') }) }
 async function revoke(session: Session) { if (!confirm(session.current ? '撤销当前设备并退出登录？' : '撤销此设备的登录？')) return; await api(`/sessions/${session.id}`, { method: 'DELETE' }); if (session.current) { await clearAuth(true); router.push('/login') } else await loadDevices() }

@@ -3,8 +3,80 @@ package database
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 )
+
+func TestOptionAppearanceMigrationPreservesExistingOrder(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "options.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := migrations.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, entry := range entries {
+		if entry.Name() >= "013_" {
+			continue
+		}
+		body, err := migrations.ReadFile("migrations/" + entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(string(body)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec("INSERT INTO schema_migrations(version) VALUES(?)", index+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = db.Exec(`INSERT INTO product_categories(name,created_at) VALUES('零食','2026-01-01'),('饮料','2026-01-02'),('其他','2026-01-03');
+INSERT INTO product_statuses(id,name,position,created_at) VALUES
+('later','较晚创建',4,'2026-01-03'),('earlier','较早创建',4,'2026-01-01'),('middle','中间创建',4,'2026-01-02');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(query string) []string {
+		t.Helper()
+		rows, err := db.Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		values := []string{}
+		for rows.Next() {
+			var value string
+			if err := rows.Scan(&value); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, value)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return values
+	}
+	statuses := read("SELECT id FROM product_statuses WHERE deleted_at IS NULL ORDER BY position,created_at,id")
+	categories := read("SELECT name FROM product_categories WHERE deleted_at IS NULL ORDER BY name COLLATE NOCASE")
+	if err = Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if got := read("SELECT id FROM product_statuses WHERE deleted_at IS NULL ORDER BY position"); !slices.Equal(got, statuses) {
+		t.Fatalf("status order changed: %v -> %v", statuses, got)
+	}
+	if got := read("SELECT name FROM product_categories WHERE deleted_at IS NULL ORDER BY position"); !slices.Equal(got, categories) {
+		t.Fatalf("category order changed: %v -> %v", categories, got)
+	}
+	var color string
+	if err = db.QueryRow("SELECT color FROM product_statuses WHERE id='earlier'").Scan(&color); err != nil || color != "#7c3aed" {
+		t.Fatalf("missing custom status color: %q %v", color, err)
+	}
+}
 
 func TestProductChineseNameMigration(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "legacy.db"))

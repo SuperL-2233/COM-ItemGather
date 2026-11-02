@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import StatusBadge from './StatusBadge.vue'
 import type { Product } from '../types'
 import { developmentStatusLabel, itemPath, productTitle } from '../utils'
 
 const props = defineProps<{ product: Product; layout: 'list' | 'grid' }>()
 const cover = computed(() => props.product.attachments[0])
-const status = computed(() => ['concept', 'design', 'production', 'completed'].includes(props.product.development_status) ? props.product.development_status : 'custom')
 const categoryLabel = computed(() => props.product.item_kind === 'tool' ? '使用类别' : '商品分类')
 const category = computed(() => props.product.item_kind === 'tool' ? props.product.use_category : props.product.category)
 </script>
@@ -34,7 +34,7 @@ const category = computed(() => props.product.item_kind === 'tool' ? props.produ
     </div>
     <div class="catalog-status">
       <span class="catalog-field-label">制作状态</span>
-      <span class="catalog-status-badge" :class="`is-${status}`">{{ developmentStatusLabel(product) }}</span>
+      <StatusBadge class="catalog-status-badge" :label="developmentStatusLabel(product)" :color="product.development_status_color" />
     </div>
   </article>
 </template>
@@ -60,13 +60,6 @@ const category = computed(() => props.product.item_kind === 'tool' ? props.produ
 .catalog-unset{font-size:.78rem;color:var(--muted)}
 .catalog-field-label{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .catalog-status{grid-area:status;min-width:0}
-.catalog-status-badge{--status-color:var(--muted);display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border-radius:5px;background:color-mix(in srgb,var(--status-color) 10%,var(--surface));color:var(--status-color);font-size:.75rem;line-height:1.4;overflow-wrap:anywhere;max-width:100%}
-.catalog-status-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
-.catalog-status-badge.is-design{--status-color:#3d65a5}
-.catalog-status-badge.is-production{--status-color:#8c611c}
-.catalog-status-badge.is-completed{--status-color:var(--accent)}
-:root[data-theme="dark"] .catalog-status-badge.is-design{--status-color:#a0bfee}
-:root[data-theme="dark"] .catalog-status-badge.is-production{--status-color:#e7bd78}
 .catalog-item.is-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"identity identity" "company company" "category status";gap:.8rem;padding:1.1rem;border-radius:9px;align-items:start}
 .is-grid .catalog-identity{display:flex;flex-direction:column;align-items:stretch;gap:1rem}
 .is-grid .catalog-visual{width:calc(100% + 2.2rem);height:auto;aspect-ratio:16/10;margin:-1.1rem -1.1rem 0;border:0;border-bottom:1px solid var(--border);border-radius:8px 8px 0 0}

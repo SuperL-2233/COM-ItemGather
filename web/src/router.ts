@@ -20,6 +20,7 @@ const router = createRouter({
     { path: '/recipes/:id', component: () => import('./views/RecipeDetailView.vue') },
     { path: '/search', component: () => import('./views/SearchView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
+    { path: '/settings/options', component: () => import('./views/OptionSettingsView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/ideas' },
   ],
 })
