@@ -10,12 +10,25 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
-	_ "modernc.org/sqlite"
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
+	"modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrations embed.FS
+
+func init() {
+	chinese := collate.New(language.SimplifiedChinese, collate.IgnoreCase, collate.Numeric)
+	var mu sync.Mutex // A Collator reuses internal buffers across comparisons.
+	sqlite.MustRegisterCollationUtf8("ZH_PINYIN", func(left, right string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return chinese.CompareString(left, right)
+	})
+}
 
 func Open(path string) (*sql.DB, error) {
 	if path != ":memory:" {

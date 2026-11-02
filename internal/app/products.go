@@ -250,8 +250,34 @@ func productFilterPlaceholders(values []string) string {
 	return strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
 }
 
+func productOrder(value string) (string, error) {
+	// UTC RFC3339Nano strings omit trailing fractional zeros. Removing the final
+	// Z makes shorter fractions (and whole seconds) compare chronologically.
+	switch value {
+	case "", "created_desc":
+		return "rtrim(p.created_at,'Z') DESC,p.id DESC", nil
+	case "created_asc":
+		return "rtrim(p.created_at,'Z') ASC,p.id ASC", nil
+	case "updated_desc":
+		return "rtrim(p.updated_at,'Z') DESC,p.id DESC", nil
+	case "updated_asc":
+		return "rtrim(p.updated_at,'Z') ASC,p.id ASC", nil
+	case "name_asc":
+		return "(p.chinese_name='') ASC,(p.chinese_name='' AND p.english_name='') ASC,p.chinese_name COLLATE ZH_PINYIN ASC,p.english_name COLLATE ZH_PINYIN ASC,p.id ASC", nil
+	case "name_desc":
+		return "(p.chinese_name='') ASC,(p.chinese_name='' AND p.english_name='') ASC,p.chinese_name COLLATE ZH_PINYIN DESC,p.english_name COLLATE ZH_PINYIN DESC,p.id DESC", nil
+	default:
+		return "", fail(400, "invalid_sort", "请选择有效的商品排序方式")
+	}
+}
+
 func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	parameters := r.URL.Query()
+	order, err := productOrder(parameters.Get("sort"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	query := strings.TrimSpace(parameters.Get("q"))
 	companies := productFilterValues(parameters["company"])
 	categories := productFilterValues(parameters["category"])
@@ -323,7 +349,7 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	var total int
 	a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM products p WHERE "+where, args...).Scan(&total)
 	args = append(args, limit, offset)
-	rows, err := a.db.QueryContext(r.Context(), productSelect+"WHERE "+where+" ORDER BY p.created_at DESC LIMIT ? OFFSET ?", args...)
+	rows, err := a.db.QueryContext(r.Context(), productSelect+"WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?", args...)
 	if err != nil {
 		writeError(w, err)
 		return
