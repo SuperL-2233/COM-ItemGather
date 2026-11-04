@@ -99,6 +99,7 @@ npm run dev
 - `/api/sessions*`：设备列表、撤销指定设备、退出其他设备。
 - `/api/admin/*`：账号、邀请、密码重置（仅管理员）。
 - `/api/ideas`、`/api/products`：列表、创建、详情、编辑、软删除、恢复、永久删除和历史恢复。
+- `PATCH /api/products/batch`：携带 `items: [{id, version}]`，统一修改所选商品的 `category`、`development_status`、`company_id`；只修改提供的字段，分类和公司可传空字符串清空。每次最多 500 件，任一商品版本冲突或校验失败时整批回滚；每件商品保留独立历史与实时同步事件。商品页点击“多选”，再通过“批量修改”弹窗操作。
 - `/api/ideas/:id/favorite`、`/api/ideas/:id/ai`：收藏、重新整理。
 - `/api/product-options/categories`、`/api/product-options/statuses`：读取或新建团队共享商品分类、制作状态。`GET /api/product-options/statuses/usage?id=...` 查看使用情况；`DELETE /api/product-options/statuses` 携带 `id`、`token` 与可选 `replacement` 删除状态。`GET /api/product-options/categories/usage?name=...` 查看删除影响并取得确认令牌；`DELETE /api/product-options/categories` 携带 `name`、`token` 与可选 `replacement` 删除分类。
 - `PATCH /api/product-options/:kind/order`：携带完整 `order` 与读取选项时返回的 `revision` 保存顺序；`PATCH /api/product-options/statuses/:id/color`：携带 `color`（`#RRGGBB`）与选项 `version` 修改颜色。列表、详情与导出返回共享颜色，修改选项不会递增商品或配方版本。

@@ -3,15 +3,53 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ItemCreateDialog from '../components/ItemCreateDialog.vue'
 import ProductCatalogItem from '../components/ProductCatalogItem.vue'
+import ProductBatchEditDialog from '../components/ProductBatchEditDialog.vue'
 import { api } from '../api'
 import type { ChoiceOption, Page, Product } from '../types'
 import { useEvents } from '../events'
 import FilterPopover from '../components/FilterPopover.vue'
+import { toast } from '../utils'
 
 interface ProductFilterOptions { companies: string[]; categories: string[]; attributes: string[]; statuses: ChoiceOption[] }
 
 const route = useRoute()
 const products = ref<Product[]>([]); const total = ref(0); const query = ref(''); const loading = ref(true); const loadingMore = ref(false); const error = ref(''); const showCreate = ref(false);
+const searchPending = ref(false)
+const selectionLocked = computed(() => loading.value || searchPending.value)
+const selecting = ref(false)
+const selected = ref(new Map<string, Product>())
+const batchProducts = ref<Product[]>()
+const selectionTrigger = ref<HTMLButtonElement>()
+const catalog = ref<HTMLElement>()
+const allDisplayedSelected = computed(() => products.value.length > 0 && products.value.every(item => selected.value.has(item.id)))
+function startSelection() { closeSort(); selecting.value = true; void nextTick(() => catalog.value?.querySelector<HTMLInputElement>('.catalog-select input')?.focus()) }
+function finishSelection() {
+  selecting.value = false
+  selected.value = new Map()
+  batchProducts.value = undefined
+  void nextTick(() => selectionTrigger.value?.focus())
+}
+function clearSelection() { selected.value = new Map(); batchProducts.value = undefined }
+function toggleProduct(product: Product) {
+  const next = new Map(selected.value)
+  if (next.has(product.id)) next.delete(product.id)
+  else {
+    if (next.size >= 500) { toast('每次最多选择 500 件商品'); return }
+    next.set(product.id, product)
+  }
+  selected.value = next
+}
+function toggleDisplayed() {
+  const next = new Map(selected.value)
+  if (allDisplayedSelected.value) for (const item of products.value) next.delete(item.id)
+  else {
+    if (new Set([...next.keys(), ...products.value.map(item => item.id)]).size > 500) { toast('每次最多选择 500 件商品，请减少选择后重试'); return }
+    for (const item of products.value) if (!next.has(item.id)) next.set(item.id, item)
+  }
+  selected.value = next
+}
+function batchSaved(count: number) { finishSelection(); refresh(); toast(`已更新 ${count} 件商品`) }
+function reselectProducts() { clearSelection(); refresh() }
 const layout = ref<'list' | 'grid'>('list')
 try { if (localStorage.getItem('com-itemgather:product-layout') === 'grid') layout.value = 'grid' } catch { /* Storage may be unavailable. */ }
 function changeLayout(value: 'list' | 'grid') {
@@ -117,6 +155,7 @@ async function load(reset = true) {
   if (reset) {
     clearTimeout(searchTimer)
     searchTimer = undefined
+    searchPending.value = false
     requestID++
     requestController?.abort()
     requestController = new AbortController()
@@ -150,10 +189,12 @@ async function load(reset = true) {
 function searchNow() {
   clearTimeout(searchTimer)
   searchTimer = undefined
+  searchPending.value = false
   void load()
 }
 function scheduleSearch() {
   clearTimeout(searchTimer)
+  searchPending.value = true
   requestID++
   requestController?.abort()
   loading.value = false
@@ -169,13 +210,13 @@ async function loadFilters() {
   catch (e) { error.value = (e as Error).message }
 }
 function refresh() { if (!searchTimer) void load(); void loadFilters() }
-watch(query, scheduleSearch, { flush: 'sync' })
+watch(query, () => { clearSelection(); scheduleSearch() }, { flush: 'sync' })
 watch(sort, value => {
   try { localStorage.setItem('com-itemgather:product-sort', value) } catch { /* Keep the selection for this visit. */ }
   searchNow()
 }, { flush: 'sync' })
-watch(filters, searchNow)
-watch(() => route.query.company_id, refresh)
+watch(filters, () => { clearSelection(); searchNow() })
+watch(() => route.query.company_id, () => { clearSelection(); refresh() })
 watch(loadMoreTrigger, (element, previous) => {
   if (previous) observer?.unobserve(previous)
   if (element) observer?.observe(element)
@@ -214,8 +255,14 @@ useEvents(refresh)
     <div v-if="activeFilters.length" class="product-active-filters" aria-label="已选筛选条件">
       <button v-for="filter in activeFilters" :key="`${filter.key}:${filter.value}`" type="button" :aria-label="`移除${filter.label}筛选`" @click="removeFilter(filter.key, filter.value)">{{ filter.label }}<span aria-hidden="true">×</span></button>
     </div>
-    <div class="product-results-bar">
-      <p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件商品` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p>
+    <div v-if="selecting" class="product-selection-bar" role="region" aria-label="商品多选操作">
+      <p role="status">已选 <strong>{{ selected.size }}</strong> 件商品</p>
+      <button type="button" class="secondary small select-displayed" :disabled="selectionLocked || !products.length" @click="toggleDisplayed">{{ allDisplayedSelected ? '取消全选' : '全选已显示' }}</button>
+      <button type="button" class="primary small edit-selected" :disabled="!selected.size || selectionLocked" @click="batchProducts = [...selected.values()]">批量修改</button>
+      <button type="button" class="text-button cancel-selection" @click="finishSelection">取消多选</button>
+    </div>
+    <div v-else class="product-results-bar">
+      <div class="product-result-summary"><p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件商品` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p><button v-if="products.length" ref="selectionTrigger" type="button" class="product-select-toggle" :disabled="selectionLocked" @click="startSelection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="m6.5 10 2.5 2.5 4.5-5" /></svg>多选</button></div>
       <div class="product-browse-controls">
         <div ref="sortControl" class="product-sort" @keydown="sortKeydown" @focusout="sortFocusOut">
           <span>排序</span>
@@ -241,14 +288,15 @@ useEvents(refresh)
     </div>
     <p v-if="error" class="error-text" role="alert">{{ error }} <button class="button-link" @click="load(products.length === 0)">重试</button></p>
     <p v-if="loading && !products.length" class="muted">读取中…</p>
-    <div v-else-if="products.length" class="product-catalog" :class="`is-${layout}`" :aria-busy="loading">
+    <div v-else-if="products.length" ref="catalog" class="product-catalog" :class="`is-${layout}`" :aria-busy="loading">
       <div v-if="layout === 'list'" class="product-list-header" aria-hidden="true"><span>商品名称</span><span>所属公司</span><span>商品分类</span><span>制作状态</span></div>
-      <ProductCatalogItem v-for="product in products" :key="product.id" :product="product" :layout="layout" />
+      <ProductCatalogItem v-for="product in products" :key="product.id" :product="product" :layout="layout" :selectable="selecting" :selected="selected.has(product.id)" :selection-disabled="selectionLocked" @toggle="toggleProduct(product)" />
     </div>
     <div v-else class="empty-state">{{ hasConditions ? '没有找到符合条件的商品，试试其他关键词或筛选条件。' : '还没有商品。可以在这里创建，也可以从一条灵感主动创建。' }}</div>
     <div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div>
   </section>
   <ItemCreateDialog v-if="showCreate" kind="product" @created="showCreate = false; refresh()" @cancel="showCreate = false" />
+  <ProductBatchEditDialog v-if="batchProducts" :products="batchProducts" @saved="batchSaved" @cancel="batchProducts = undefined" @reselect="reselectProducts" />
 </template>
 
 <style scoped>
@@ -265,6 +313,15 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-active-filters button:hover{color:var(--accent);border-color:var(--accent)}
 .product-active-filters button>span{font-size:1rem;flex:none}
 .product-results-bar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap;margin:1rem 0 .75rem}
+.product-result-summary{display:flex;align-items:center;gap:.65rem;min-width:0}
+.product-select-toggle{display:inline-flex;align-items:center;gap:.3rem;flex:none;min-height:2.2rem;padding:.35rem .45rem;border-radius:5px;background:transparent;color:var(--muted);font-size:.78rem}
+.product-select-toggle:hover{background:var(--surface-soft);color:var(--accent)}
+.product-select-toggle svg{width:1rem;height:1rem}
+.product-selection-bar{display:flex;align-items:center;gap:.6rem;margin:1rem 0 .75rem;padding:.65rem .8rem;background:color-mix(in srgb,var(--accent) 5%,var(--surface));border:1px solid var(--focus);border-radius:8px}
+.product-selection-bar p{margin:0 auto 0 0;font-size:.85rem;color:var(--muted)}
+.product-selection-bar strong{color:var(--text)}
+.product-selection-bar button{font-size:.8rem}
+.cancel-selection{white-space:nowrap}
 .product-result-count{margin:0;color:var(--muted);font-size:.82rem;line-height:1.5}
 .product-result-count>span{font-size:.75rem}
 .product-browse-controls{display:flex;align-items:center;gap:.75rem;margin-left:auto;min-width:0}
@@ -294,4 +351,5 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-catalog.is-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start}
 @media(max-width:900px){.product-catalog{--catalog-gap:.8rem;--catalog-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,.8fr) minmax(5rem,.8fr)}.product-catalog.is-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.product-list-header{display:none}.product-catalog.is-grid{grid-template-columns:1fr;gap:.75rem}.product-result-count>span{display:block}.product-view-switch button{padding:.35rem .5rem}.product-toolbar{margin-top:1rem}.product-results-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem}.product-result-count{grid-column:1;grid-row:1}.product-browse-controls{display:contents}.product-view-switch{grid-column:2;grid-row:1}.product-sort{grid-column:1/-1;grid-row:2;width:100%}.product-sort-trigger{flex:1;width:100%;min-height:2.65rem}.product-sort-menu{left:0;right:0}.product-sort-option{min-width:0;min-height:2.65rem}}
+@media(max-width:600px){.product-result-summary{grid-column:1;grid-row:1;flex-wrap:wrap;gap:.15rem .4rem}.product-selection-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.6rem}.product-selection-bar p{grid-column:1;grid-row:1}.cancel-selection{grid-column:2;grid-row:1;justify-self:end}.select-displayed{grid-column:1;grid-row:2}.edit-selected{grid-column:2;grid-row:2;min-width:6rem}}
 </style>
