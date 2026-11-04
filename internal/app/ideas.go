@@ -68,15 +68,9 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 	if err != nil {
 		return item, ensureNoRows(err)
 	}
-	rows, err := q.QueryContext(ctx, "SELECT id,key,value,certainty FROM idea_attributes WHERE idea_id=? ORDER BY position,id", id)
+	item.Attributes, err = loadIdeaAttributes(ctx, q, id)
 	if err != nil {
 		return item, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var attr Attribute
-		rows.Scan(&attr.ID, &attr.Key, &attr.Value, &attr.Certainty)
-		item.Attributes = append(item.Attributes, attr)
 	}
 	item.Attachments, err = loadAttachments(ctx, q, "idea", id, -1)
 	if err != nil {
@@ -96,6 +90,23 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 		}
 	}
 	return item, nil
+}
+
+func loadIdeaAttributes(ctx context.Context, q querier, id string) ([]Attribute, error) {
+	items := []Attribute{}
+	rows, err := q.QueryContext(ctx, "SELECT id,key,value,certainty FROM idea_attributes WHERE idea_id=? ORDER BY position,id", id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item Attribute
+		if err := rows.Scan(&item.ID, &item.Key, &item.Value, &item.Certainty); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func ideaSnapshot(item Idea) ideaFields {
@@ -332,6 +343,11 @@ func (a *App) listIdeas(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 	for index := range items {
+		items[index].Attributes, err = loadIdeaAttributes(r.Context(), a.db, items[index].ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 		items[index].Attachments, err = loadAttachments(r.Context(), a.db, "idea", items[index].ID, 1)
 		if err != nil {
 			writeError(w, err)

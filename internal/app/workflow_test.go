@@ -23,7 +23,15 @@ func TestIdeaProductWorkflow(t *testing.T) {
 	if idea.OriginalContent != "绿色风暴" || len(idea.Attributes) != 1 || idea.Attributes[0].Certainty != "tentative" {
 		t.Fatalf("unexpected organized idea %+v", idea)
 	}
-	status, data := client.request(t, "PATCH", "/api/ideas/"+idea.ID, map[string]any{"version": idea.Version, "display_title": "人工标题"})
+	status, data := client.request(t, "GET", "/api/ideas", nil)
+	assertStatus(t, status, 200, data)
+	page := decodeTestJSON[struct {
+		Items []Idea `json:"items"`
+	}](t, data)
+	if len(page.Items) != 1 || len(page.Items[0].Attributes) != 1 || page.Items[0].Attributes[0].Value != "青苹果" {
+		t.Fatalf("灵感列表没有返回动态属性: %+v", page.Items)
+	}
+	status, data = client.request(t, "PATCH", "/api/ideas/"+idea.ID, map[string]any{"version": idea.Version, "display_title": "人工标题"})
 	assertStatus(t, status, 200, data)
 	updated := decodeTestJSON[Idea](t, data)
 	status, data = client.request(t, "PATCH", "/api/ideas/"+idea.ID, map[string]any{"version": idea.Version, "display_title": "覆盖别人的修改"})

@@ -48,7 +48,7 @@ const mock = createServer((request, response) => {
       idea_types: content === '绿色风暴' ? ['名称'] : [],
       product_directions: content === '绿色风暴' ? ['饮料'] : [],
       tags: [],
-      attributes: [],
+      attributes: content === '绿色风暴' ? [{ key: '口味', value: '青苹果', certainty: 'tentative' }] : [],
     }
     response.writeHead(200, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) }, finish_reason: 'stop' }] }))

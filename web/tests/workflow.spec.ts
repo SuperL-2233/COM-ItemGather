@@ -51,6 +51,7 @@ test('持久登录、AI 整理、双浏览器 SSE 和手动关联商品', async 
     await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toHaveCount(1)
     await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toContainText('青苹果饮料')
     await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' }).locator('.tag').filter({ hasText: '名称' })).toHaveCount(1)
+    await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toContainText('口味：青苹果')
     await expect(second.page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toHaveCount(1)
     await expect(second.page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toContainText('青苹果饮料')
 
