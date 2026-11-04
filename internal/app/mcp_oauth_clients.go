@@ -70,11 +70,14 @@ func validateMCPClient(item *oauthClientMetadata) error {
 	if len([]rune(item.ClientName)) > 100 || len(item.RedirectURIs) < 1 || len(item.RedirectURIs) > 10 {
 		return errors.New("client name or redirect URIs are invalid")
 	}
-	if item.TokenEndpointAuthMethod != "" && item.TokenEndpointAuthMethod != "none" {
+	// CIMD's supported-methods list takes precedence over the legacy preference.
+	// ChatGPT prefers private_key_jwt but also supports our public-client flow.
+	if item.TokenEndpointAuthMethodsSupported != nil {
+		if !slices.Contains(item.TokenEndpointAuthMethodsSupported, "none") {
+			return errors.New("client must support public-client token exchange")
+		}
+	} else if item.TokenEndpointAuthMethod != "" && item.TokenEndpointAuthMethod != "none" {
 		return errors.New("only public clients with PKCE are supported")
-	}
-	if len(item.TokenEndpointAuthMethodsSupported) > 0 && !slices.Contains(item.TokenEndpointAuthMethodsSupported, "none") {
-		return errors.New("client must support public-client token exchange")
 	}
 	for _, value := range item.GrantTypes {
 		if value != "authorization_code" && value != "refresh_token" {
@@ -133,7 +136,7 @@ func (a *App) oauthClient(ctx context.Context, id string) (oauthClientMetadata, 
 	defer response.Body.Close()
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if response.StatusCode != 200 || mediaType != "application/json" {
-		return item, errors.New("client metadata unavailable")
+		return item, fmt.Errorf("client metadata unavailable (HTTP %d, content type %q)", response.StatusCode, mediaType)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 65537))
 	if err != nil || len(data) > 65536 || json.Unmarshal(data, &item) != nil || item.ClientID != id {
@@ -192,6 +195,8 @@ func (a *App) registerMCPClient(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, "invalid_client_metadata", "客户端资料格式无效")
 		return
 	}
+	// DCR selects one method; CIMD's plural field does not override that choice.
+	item.TokenEndpointAuthMethodsSupported = nil
 	if err := validateMCPClient(&item); err != nil {
 		oauthError(w, "invalid_client_metadata", err.Error())
 		return

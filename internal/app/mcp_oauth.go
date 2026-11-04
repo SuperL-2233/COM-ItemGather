@@ -54,6 +54,7 @@ func (a *App) validateMCPAuthorization(r *http.Request) (*server.AuthorizeReques
 	}
 	client, err = a.oauthClient(r.Context(), request.ClientID)
 	if err != nil {
+		a.log.Printf("MCP OAuth client metadata validation failed: %q", err.Error())
 		return nil, client, errors.New("无法验证 OAuth 客户端资料")
 	}
 	if err := validateMCPRedirect(encodeJSON(client.RedirectURIs), request.RedirectURI); err != nil {
