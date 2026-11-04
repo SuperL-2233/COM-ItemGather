@@ -75,7 +75,7 @@ test('手机授权页可拒绝，且不会产生授权码', async ({ page, baseU
   expect(callback.searchParams.has('code')).toBe(false)
 })
 
-test('ChatGPT Web 固定客户端无需下载资料即可完成登录、PKCE 授权和只读调用', async ({ page, baseURL }) => {
+test('ChatGPT Web 固定客户端完成登录、初始化、工具发现和只读调用', async ({ page, baseURL }) => {
   const clientID = 'https://chatgpt.com/oauth/client.json'
   const redirectURI = 'https://chatgpt.com/connector_platform_oauth_redirect'
   const verifier = randomBytes(48).toString('base64url')
@@ -102,10 +102,39 @@ test('ChatGPT Web 固定客户端无需下载资料即可完成登录、PKCE 授
   expect(tokenResponse.ok(), await tokenResponse.text()).toBeTruthy()
   const credentials = await tokenResponse.json()
   expect(credentials.scope).toBe('creative-library:read')
+  const headers = { Authorization: `Bearer ${credentials.access_token}`, Origin: 'https://chatgpt.com', Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-03-26' }
+  const initialized = await page.request.post(`${baseURL}/api/mcp`, {
+    headers,
+    data: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'openai-mcp', version: '1.0.0' } } },
+  })
+  expect(initialized.ok(), await initialized.text()).toBeTruthy()
+  expect((await initialized.json()).result.capabilities.tools).toBeDefined()
+  const notified = await page.request.post(`${baseURL}/api/mcp`, { headers, data: { jsonrpc: '2.0', method: 'notifications/initialized' } })
+  expect(notified.status()).toBe(202)
+  const discovered = await page.request.post(`${baseURL}/api/mcp`, { headers, data: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } })
+  expect(discovered.ok(), await discovered.text()).toBeTruthy()
+  const tools = (await discovered.json()).result.tools
+  expect(tools).toHaveLength(4)
+  for (const tool of tools) {
+    expect(tool.outputSchema.type).toBe('object')
+    expect(tool._meta.securitySchemes).toEqual([{ type: 'oauth2', scopes: ['creative-library:read'] }])
+    expect(tool.annotations.readOnlyHint).toBe(true)
+  }
   const result = await page.request.post(`${baseURL}/api/mcp`, {
-    headers: { Authorization: `Bearer ${credentials.access_token}`, Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-11-25' },
-    data: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_library_info', arguments: {} } },
+    headers,
+    data: { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_library_info', arguments: {} } },
   })
   expect(result.ok(), await result.text()).toBeTruthy()
   expect((await result.json()).result.isError).not.toBe(true)
+
+  const { csrf_token } = await (await page.request.get(`${baseURL}/api/auth/me`)).json()
+  const created = await page.request.post(`${baseURL}/api/products`, { headers: { 'X-CSRF-Token': csrf_token }, data: { chinese_name: 'ChatGPT 发现验收', description: '工具发现后读取的完整正文' } })
+  expect(created.ok()).toBeTruthy()
+  const product = await created.json()
+  const detail = await page.request.post(`${baseURL}/api/mcp`, { headers, data: { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'fetch', arguments: { id: `product:${product.id}` } } } })
+  expect(detail.ok(), await detail.text()).toBeTruthy()
+  const document = (await detail.json()).result
+  expect(document.isError).not.toBe(true)
+  expect(document.structuredContent.text).toContain('工具发现后读取的完整正文')
+  expect(JSON.parse(document.content[0].text)).toEqual(document.structuredContent)
 })

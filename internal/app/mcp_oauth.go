@@ -339,7 +339,15 @@ func (a *App) revokeMCPToken(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) requireMCPAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if origin := r.Header.Get("Origin"); origin != "" && origin != a.oauthIssuer() {
+		// Nginx reaches the loopback listener using the public Host. Validate
+		// that authority here instead of the SDK's loopback-only Host policy.
+		issuer, err := url.Parse(a.oauthIssuer())
+		if err != nil || issuer.Host == "" || !strings.EqualFold(r.Host, issuer.Host) {
+			writeError(w, fail(403, "invalid_host", "不允许此主机访问 MCP"))
+			return
+		}
+		origins := r.Header.Values("Origin")
+		if origin := r.Header.Get("Origin"); len(origins) > 1 || (origin != "" && origin != a.oauthIssuer() && origin != "https://chatgpt.com") {
 			writeError(w, fail(403, "invalid_origin", "不允许此来源访问 MCP"))
 			return
 		}

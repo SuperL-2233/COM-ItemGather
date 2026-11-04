@@ -319,7 +319,7 @@ func (a *App) mcpFetch(ctx context.Context, key string) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": key, "kind": kind, "title": summary.Title, "url": a.mcpSummaryURL(summary), "record": fields, "related": related}, nil
+	return map[string]any{"id": key, "kind": kind, "title": summary.Title, "text": encodeJSON(fields), "url": a.mcpSummaryURL(summary), "record": fields, "related": related}, nil
 }
 
 func (a *App) mcpLibraryInfo(ctx context.Context) (map[string]any, error) {

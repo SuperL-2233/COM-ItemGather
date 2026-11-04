@@ -29,8 +29,11 @@ func (a *App) registerMCPRoutes() {
 	})
 	closed, destructive := false, false
 	annotations := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closed, DestructiveHint: &destructive}
+	outputs := mcpOutputSchemas()
+	titles := map[string]string{"get_library_info": "创意库信息", "list_records": "浏览创意记录", "search": "搜索创意库", "fetch": "读取创意详情"}
 	add := func(name, description string, properties map[string]any, required []string, run func(context.Context, json.RawMessage) (any, error)) {
-		mcp.AddTool(server, &mcp.Tool{Name: name, Description: description, Annotations: annotations,
+		mcp.AddTool(server, &mcp.Tool{Name: name, Title: titles[name], Description: description, Annotations: annotations, OutputSchema: outputs[name],
+			Meta:        mcp.Meta{"securitySchemes": []map[string]any{{"type": "oauth2", "scopes": []string{mcpReadScope}}}},
 			InputSchema: map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}},
 			func(ctx context.Context, request *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 				ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -46,7 +49,9 @@ func (a *App) registerMCPRoutes() {
 					}
 					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: message}}}, nil, nil
 				}
-				return &mcp.CallToolResult{StructuredContent: value, Content: []mcp.Content{&mcp.TextContent{Text: encodeJSON(value)}}}, nil, nil
+				// Let the SDK validate the typed output against OutputSchema and
+				// serialize structuredContent alongside the JSON text fallback.
+				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: encodeJSON(value)}}}, value, nil
 			})
 	}
 	add("get_library_info", "Use first to understand the creative library: record counts, available categories/statuses/tags and field semantics. Reads current shared business data only.", map[string]any{}, []string{}, func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -96,5 +101,9 @@ func (a *App) registerMCPRoutes() {
 		}
 		return a.mcpFetch(ctx, args.ID)
 	})
-	a.mux.Handle("/api/mcp", a.requireMCPAuth(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})))
+	// The auth middleware validates Host against APP_PUBLIC_URL before the SDK
+	// sees the request, including public Hosts forwarded to a loopback listener.
+	a.mux.Handle("/api/mcp", a.requireMCPAuth(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
+		Stateless: true, JSONResponse: true, DisableLocalhostProtection: true,
+	})))
 }
