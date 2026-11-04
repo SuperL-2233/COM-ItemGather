@@ -46,12 +46,11 @@ test('持久登录、AI 整理、双浏览器 SSE 和手动关联商品', async 
   await expect(page.getByRole('textbox', { name: '记录一条灵感' })).toBeVisible()
   const second = await secondBrowser(browser)
   try {
-    await page.getByRole('textbox', { name: '记录一条灵感' }).fill('绿色风暴')
+    await page.getByRole('textbox', { name: '记录一条灵感' }).fill('一款叫绿色风暴的青苹果汽水')
     await page.getByRole('button', { name: '保存灵感' }).click()
     await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toHaveCount(1)
     await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toContainText('青苹果饮料')
-    await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' }).locator('.tag').filter({ hasText: '名称' })).toHaveCount(1)
-    await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toContainText('口味：青苹果')
+    await expect(page.locator('.idea-card').filter({ hasText: '绿色风暴' }).locator('.tag').filter({ hasText: '商品概念' })).toHaveCount(1)
     await expect(second.page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toHaveCount(1)
     await expect(second.page.locator('.idea-card').filter({ hasText: '绿色风暴' })).toContainText('青苹果饮料')
 
@@ -65,7 +64,7 @@ test('持久登录、AI 整理、双浏览器 SSE 和手动关联商品', async 
     const links = await page.request.get('/api/ideas')
     const ideas = (await links.json()).items
     expect(ideas.find((idea: { id: string }) => page.url().includes(idea.id))).toBeUndefined()
-    const detail = await page.request.get(`/api/ideas/${ideas.find((idea: { original_content: string }) => idea.original_content === '绿色风暴').id}`)
+    const detail = await page.request.get(`/api/ideas/${ideas.find((idea: { original_content: string }) => idea.original_content === '一款叫绿色风暴的青苹果汽水').id}`)
     expect((await detail.json()).product_count).toBe(1)
   } finally {
     await second.context.close()
@@ -472,26 +471,4 @@ test('商品搜索可以按创建者筛选', async ({ page, browser }) => {
     await expect(page.locator('.product-card')).toHaveCount(1)
     await expect(page.locator('.product-card')).toContainText('创建者验收：成员商品')
   } finally { await second.context.close() }
-})
-
-test('重新生成全部字段后灵感卡片替换旧动态属性', async ({ page }) => {
-  await signIn(page, 'admin', adminPassword)
-  await page.getByRole('textbox', { name: '记录一条灵感' }).fill('属性替换验收')
-  await page.getByRole('button', { name: '保存灵感' }).click()
-  const card = page.locator('.idea-card').filter({ hasText: '属性替换验收' })
-  await expect(card).toContainText('生成批次：旧属性')
-  await card.locator('.card-title').click()
-  await expect(page.getByLabel('属性值')).toHaveValue('旧属性')
-  await page.getByLabel('属性值').fill('人工修改过的旧属性')
-  await page.getByRole('button', { name: '保存修改', exact: true }).click()
-  await expect(page.getByRole('button', { name: '已保存', exact: true })).toBeVisible()
-  page.once('dialog', dialog => dialog.accept())
-  await page.getByRole('button', { name: '重新生成全部字段', exact: true }).click()
-  await expect(page.getByLabel('属性值')).toHaveValue('新属性')
-  await page.getByRole('link', { name: '← 返回灵感库' }).click()
-  await expect(card).toContainText('生成批次：新属性')
-  await expect(card).not.toContainText('生成批次：旧属性')
-  const result = await page.request.get('/api/ideas')
-  const idea = (await result.json()).items.find((item: { original_content: string }) => item.original_content === '属性替换验收')
-  expect(idea.attributes).toEqual([{ id: idea.attributes[0].id, key: '生成批次', value: '新属性', certainty: 'asserted' }])
 })

@@ -209,7 +209,7 @@ func TestRecipesCrossKindQuantitiesConflictsAndTrash(t *testing.T) {
 	status, data = c.request(t, "GET", "/api/export", nil)
 	assertStatus(t, status, 200, data)
 	exported := decodeTestJSON[map[string]any](t, data)
-	if exported["format_version"] != float64(2) || len(exported["tools"].([]any)) != 2 || len(exported["recipes"].([]any)) != 2 {
+	if exported["format_version"] != float64(3) || len(exported["tools"].([]any)) != 2 || len(exported["recipes"].([]any)) != 2 {
 		t.Fatal("export omitted catalog records")
 	}
 }

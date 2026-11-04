@@ -18,24 +18,21 @@ type querier interface {
 }
 
 type ideaFields struct {
-	OriginalContent   string      `json:"original_content"`
-	Content           string      `json:"content"`
-	DisplayTitle      string      `json:"display_title"`
-	Summary           string      `json:"summary"`
-	Notes             string      `json:"notes"`
-	NameCandidates    []string    `json:"name_candidates"`
-	IdeaTypes         []string    `json:"idea_types"`
-	ProductDirections []string    `json:"product_directions"`
-	Tags              []string    `json:"tags"`
-	Attributes        []Attribute `json:"attributes"`
-	ManualFields      []string    `json:"manual_fields"`
-	ContentVersion    int         `json:"content_version"`
-	AIStatus          string      `json:"ai_status"`
-	AIError           string      `json:"ai_error,omitempty"`
+	OriginalContent   string   `json:"original_content"`
+	Content           string   `json:"content"`
+	DisplayTitle      string   `json:"display_title"`
+	Summary           string   `json:"summary"`
+	Notes             string   `json:"notes"`
+	IdeaTypes         []string `json:"idea_types"`
+	ProductDirections []string `json:"product_directions"`
+	ManualFields      []string `json:"manual_fields"`
+	ContentVersion    int      `json:"content_version"`
+	AIStatus          string   `json:"ai_status"`
+	AIError           string   `json:"ai_error,omitempty"`
 }
 
 const ideaSelect = `SELECT i.id,COALESCE(i.client_id,''),i.original_content,i.content,i.display_title,i.summary,i.notes,
-i.name_candidates_json,i.idea_types_json,i.product_directions_json,i.tags_json,i.manual_fields_json,i.author_id,u.nickname,
+i.idea_types_json,i.product_directions_json,i.manual_fields_json,i.author_id,u.nickname,
 i.created_at,i.updated_at,i.version,i.content_version,i.ai_status,i.ai_error,COALESCE(i.deleted_at,''),
 EXISTS(SELECT 1 FROM favorites f WHERE f.idea_id=i.id AND f.user_id=?),
 (SELECT COUNT(*) FROM idea_product_links l JOIN products p ON p.id=l.product_id WHERE l.idea_id=i.id AND p.deleted_at IS NULL)
@@ -43,15 +40,12 @@ FROM ideas i JOIN users u ON u.id=i.author_id `
 
 func scanIdea(row *sql.Row, userID string) (Idea, error) {
 	var item Idea
-	var names, types, directions, tags, manual string
+	var types, directions, manual string
 	var deleted string
-	err := row.Scan(&item.ID, &item.ClientID, &item.OriginalContent, &item.Content, &item.DisplayTitle, &item.Summary, &item.Notes, &names, &types, &directions, &tags, &manual, &item.AuthorID, &item.AuthorNickname, &item.CreatedAt, &item.UpdatedAt, &item.Version, &item.ContentVersion, &item.AIStatus, &item.AIError, &deleted, &item.Favorite, &item.ProductCount)
-	item.NameCandidates = decodeStrings(names)
+	err := row.Scan(&item.ID, &item.ClientID, &item.OriginalContent, &item.Content, &item.DisplayTitle, &item.Summary, &item.Notes, &types, &directions, &manual, &item.AuthorID, &item.AuthorNickname, &item.CreatedAt, &item.UpdatedAt, &item.Version, &item.ContentVersion, &item.AIStatus, &item.AIError, &deleted, &item.Favorite, &item.ProductCount)
 	item.IdeaTypes = decodeStrings(types)
 	item.ProductDirections = decodeStrings(directions)
-	item.Tags = decodeStrings(tags)
 	item.ManualFields = decodeStrings(manual)
-	item.Attributes = []Attribute{}
 	item.Attachments = []Attachment{}
 	if deleted != "" {
 		item.DeletedAt = deleted
@@ -67,10 +61,6 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 	item, err := scanIdea(q.QueryRowContext(ctx, ideaSelect+clause, userID, id), userID)
 	if err != nil {
 		return item, ensureNoRows(err)
-	}
-	item.Attributes, err = loadIdeaAttributes(ctx, q, id)
-	if err != nil {
-		return item, err
 	}
 	item.Attachments, err = loadAttachments(ctx, q, "idea", id, -1)
 	if err != nil {
@@ -92,38 +82,16 @@ func loadIdea(ctx context.Context, q querier, id, userID string, deleted bool, r
 	return item, nil
 }
 
-func loadIdeaAttributes(ctx context.Context, q querier, id string) ([]Attribute, error) {
-	items := []Attribute{}
-	rows, err := q.QueryContext(ctx, "SELECT id,key,value,certainty FROM idea_attributes WHERE idea_id=? ORDER BY position,id", id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item Attribute
-		if err := rows.Scan(&item.ID, &item.Key, &item.Value, &item.Certainty); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
 func ideaSnapshot(item Idea) ideaFields {
-	return ideaFields{OriginalContent: item.OriginalContent, Content: item.Content, DisplayTitle: item.DisplayTitle, Summary: item.Summary, Notes: item.Notes, NameCandidates: item.NameCandidates, IdeaTypes: item.IdeaTypes, ProductDirections: item.ProductDirections, Tags: item.Tags, Attributes: item.Attributes, ManualFields: item.ManualFields, ContentVersion: item.ContentVersion, AIStatus: item.AIStatus, AIError: item.AIError}
+	return ideaFields{OriginalContent: item.OriginalContent, Content: item.Content, DisplayTitle: item.DisplayTitle, Summary: item.Summary, Notes: item.Notes, IdeaTypes: item.IdeaTypes, ProductDirections: item.ProductDirections, ManualFields: item.ManualFields, ContentVersion: item.ContentVersion, AIStatus: item.AIStatus, AIError: item.AIError}
 }
 
 func changedOrganizedFields(before, after ideaFields) map[string]bool {
 	return map[string]bool{
 		"display_title":      before.DisplayTitle != after.DisplayTitle,
 		"summary":            before.Summary != after.Summary,
-		"name_candidates":    !slices.Equal(before.NameCandidates, after.NameCandidates),
 		"idea_types":         !slices.Equal(before.IdeaTypes, after.IdeaTypes),
 		"product_directions": !slices.Equal(before.ProductDirections, after.ProductDirections),
-		"tags":               !slices.Equal(before.Tags, after.Tags),
-		"attributes": !slices.EqualFunc(before.Attributes, after.Attributes, func(a, b Attribute) bool {
-			return a.Key == b.Key && a.Value == b.Value && a.Certainty == b.Certainty
-		}),
 	}
 }
 func addRevision(ctx context.Context, tx *sql.Tx, kind, id string, version int, actor *string, action string, before, after any) error {
@@ -168,38 +136,6 @@ func validAttributes(values []Attribute) ([]Attribute, error) {
 		result = append(result, attr)
 	}
 	return result, nil
-}
-
-func replaceIdeaAttributes(ctx context.Context, tx *sql.Tx, id string, attrs []Attribute) error {
-	if _, err := tx.ExecContext(ctx, "DELETE FROM idea_attributes WHERE idea_id=?", id); err != nil {
-		return err
-	}
-	for index, attr := range attrs {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO idea_attributes(id,idea_id,key,value,certainty,position) VALUES(?,?,?,?,?,?)", security.ID(), id, attr.Key, attr.Value, attr.Certainty, index); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-func replaceIdeaTags(ctx context.Context, tx *sql.Tx, id string, tags []string) error {
-	if _, err := tx.ExecContext(ctx, "DELETE FROM idea_tags WHERE idea_id=?", id); err != nil {
-		return err
-	}
-	for _, name := range tags {
-		var tagID string
-		err := tx.QueryRowContext(ctx, "SELECT id FROM tags WHERE name=? COLLATE NOCASE", name).Scan(&tagID)
-		if err == sql.ErrNoRows {
-			tagID = security.ID()
-			_, err = tx.ExecContext(ctx, "INSERT INTO tags(id,name,created_at) VALUES(?,?,?)", tagID, name, now())
-		}
-		if err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO idea_tags(idea_id,tag_id) VALUES(?,?)", id, tagID); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (a *App) createIdea(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +193,7 @@ func (a *App) createIdea(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	item := Idea{ID: id, ClientID: body.ClientID, OriginalContent: body.Content, Content: body.Content, DisplayTitle: title, AuthorID: user.ID, CreatedAt: timestamp, UpdatedAt: timestamp, Version: 1, ContentVersion: 1, AIStatus: status, NameCandidates: []string{}, IdeaTypes: []string{}, ProductDirections: []string{}, Tags: []string{}, Attributes: []Attribute{}, Attachments: []Attachment{}}
+	item := Idea{ID: id, ClientID: body.ClientID, OriginalContent: body.Content, Content: body.Content, DisplayTitle: title, AuthorID: user.ID, CreatedAt: timestamp, UpdatedAt: timestamp, Version: 1, ContentVersion: 1, AIStatus: status, IdeaTypes: []string{}, ProductDirections: []string{}, Attachments: []Attachment{}}
 	if err = addRevision(r.Context(), tx, "idea", id, 1, &user.ID, "create", nil, ideaSnapshot(item)); err != nil {
 		writeError(w, err)
 		return
@@ -305,9 +241,9 @@ func (a *App) listIdeas(w http.ResponseWriter, r *http.Request) {
 		args = append(args, user.ID)
 	}
 	if query != "" {
-		where += " AND (i.original_content LIKE ? ESCAPE '\\' OR i.content LIKE ? ESCAPE '\\' OR i.display_title LIKE ? ESCAPE '\\' OR i.summary LIKE ? ESCAPE '\\' OR i.tags_json LIKE ? ESCAPE '\\')"
+		where += " AND (i.original_content LIKE ? ESCAPE '\\' OR i.content LIKE ? ESCAPE '\\' OR i.display_title LIKE ? ESCAPE '\\' OR i.summary LIKE ? ESCAPE '\\' OR i.idea_types_json LIKE ? ESCAPE '\\' OR i.product_directions_json LIKE ? ESCAPE '\\')"
 		like := "%" + escapeLike(query) + "%"
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 6; i++ {
 			args = append(args, like)
 		}
 	}
@@ -323,17 +259,14 @@ func (a *App) listIdeas(w http.ResponseWriter, r *http.Request) {
 	items := []Idea{}
 	for rows.Next() {
 		var item Idea
-		var names, types, directions, tags, manual, deleted string
-		err = rows.Scan(&item.ID, &item.ClientID, &item.OriginalContent, &item.Content, &item.DisplayTitle, &item.Summary, &item.Notes, &names, &types, &directions, &tags, &manual, &item.AuthorID, &item.AuthorNickname, &item.CreatedAt, &item.UpdatedAt, &item.Version, &item.ContentVersion, &item.AIStatus, &item.AIError, &deleted, &item.Favorite, &item.ProductCount)
+		var types, directions, manual, deleted string
+		err = rows.Scan(&item.ID, &item.ClientID, &item.OriginalContent, &item.Content, &item.DisplayTitle, &item.Summary, &item.Notes, &types, &directions, &manual, &item.AuthorID, &item.AuthorNickname, &item.CreatedAt, &item.UpdatedAt, &item.Version, &item.ContentVersion, &item.AIStatus, &item.AIError, &deleted, &item.Favorite, &item.ProductCount)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		item.NameCandidates = decodeStrings(names)
 		item.IdeaTypes = decodeStrings(types)
 		item.ProductDirections = decodeStrings(directions)
-		item.Tags = decodeStrings(tags)
-		item.Attributes = []Attribute{}
 		item.Attachments = []Attachment{}
 		items = append(items, item)
 	}
@@ -343,11 +276,6 @@ func (a *App) listIdeas(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 	for index := range items {
-		items[index].Attributes, err = loadIdeaAttributes(r.Context(), a.db, items[index].ID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
 		items[index].Attachments, err = loadAttachments(r.Context(), a.db, "idea", items[index].ID, 1)
 		if err != nil {
 			writeError(w, err)
@@ -388,16 +316,13 @@ func (a *App) getIdea(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) updateIdea(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Version           int          `json:"version"`
-		Content           *string      `json:"content"`
-		DisplayTitle      *string      `json:"display_title"`
-		Summary           *string      `json:"summary"`
-		Notes             *string      `json:"notes"`
-		NameCandidates    *[]string    `json:"name_candidates"`
-		IdeaTypes         *[]string    `json:"idea_types"`
-		ProductDirections *[]string    `json:"product_directions"`
-		Tags              *[]string    `json:"tags"`
-		Attributes        *[]Attribute `json:"attributes"`
+		Version           int       `json:"version"`
+		Content           *string   `json:"content"`
+		DisplayTitle      *string   `json:"display_title"`
+		Summary           *string   `json:"summary"`
+		Notes             *string   `json:"notes"`
+		IdeaTypes         *[]string `json:"idea_types"`
+		ProductDirections *[]string `json:"product_directions"`
 	}
 	if err := decodeBody(w, r, &body); err != nil {
 		writeError(w, err)
@@ -444,25 +369,11 @@ func (a *App) updateIdea(w http.ResponseWriter, r *http.Request) {
 	if body.Notes != nil {
 		item.Notes = clean(*body.Notes, 20000)
 	}
-	if body.NameCandidates != nil {
-		item.NameCandidates = validStringList(*body.NameCandidates, 100)
-	}
 	if body.IdeaTypes != nil {
 		item.IdeaTypes = validStringList(*body.IdeaTypes, 30)
 	}
 	if body.ProductDirections != nil {
 		item.ProductDirections = validStringList(*body.ProductDirections, 30)
-	}
-	if body.Tags != nil {
-		item.Tags = validStringList(*body.Tags, 50)
-	}
-	if body.Attributes != nil {
-		attrs, attrErr := validAttributes(*body.Attributes)
-		if attrErr != nil {
-			writeError(w, attrErr)
-			return
-		}
-		item.Attributes = attrs
 	}
 	for field, changed := range changedOrganizedFields(before, ideaSnapshot(item)) {
 		if changed {
@@ -486,7 +397,7 @@ func (a *App) updateIdea(w http.ResponseWriter, r *http.Request) {
 	item.ManualFields = manualList
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), `UPDATE ideas SET content=?,display_title=?,summary=?,notes=?,name_candidates_json=?,idea_types_json=?,product_directions_json=?,tags_json=?,manual_fields_json=?,content_version=?,ai_status=?,ai_error=?,version=?,updated_at=? WHERE id=? AND version=?`, item.Content, item.DisplayTitle, item.Summary, item.Notes, encodeJSON(item.NameCandidates), encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(item.Tags), encodeJSON(manualList), item.ContentVersion, item.AIStatus, item.AIError, item.Version, item.UpdatedAt, id, body.Version)
+	result, err := tx.ExecContext(r.Context(), `UPDATE ideas SET content=?,display_title=?,summary=?,notes=?,idea_types_json=?,product_directions_json=?,manual_fields_json=?,content_version=?,ai_status=?,ai_error=?,version=?,updated_at=? WHERE id=? AND version=?`, item.Content, item.DisplayTitle, item.Summary, item.Notes, encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(manualList), item.ContentVersion, item.AIStatus, item.AIError, item.Version, item.UpdatedAt, id, body.Version)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -495,18 +406,6 @@ func (a *App) updateIdea(w http.ResponseWriter, r *http.Request) {
 	if count != 1 {
 		writeError(w, fail(409, "version_conflict", "这条灵感已被其他人修改"))
 		return
-	}
-	if body.Attributes != nil {
-		if err = replaceIdeaAttributes(r.Context(), tx, id, item.Attributes); err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	if body.Tags != nil {
-		if err = replaceIdeaTags(r.Context(), tx, id, item.Tags); err != nil {
-			writeError(w, err)
-			return
-		}
 	}
 	if err = addRevision(r.Context(), tx, "idea", id, item.Version, &user.ID, "update", before, ideaSnapshot(item)); err != nil {
 		writeError(w, err)

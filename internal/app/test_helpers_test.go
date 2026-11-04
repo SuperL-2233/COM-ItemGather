@@ -38,7 +38,7 @@ type testClient struct {
 }
 
 func validAIHandler(w http.ResponseWriter, r *http.Request) {
-	result := AIResult{DisplayTitle: "绿色风暴", Summary: "青苹果饮料", NameCandidates: []string{"绿色风暴"}, IdeaTypes: []string{"名称", "玩法"}, ProductDirections: []string{"饮料"}, Tags: []string{"青苹果"}, Attributes: []Attribute{{Key: "口味", Value: "青苹果", Certainty: "tentative"}}}
+	result := AIResult{DisplayTitle: "绿色风暴", Summary: "青苹果饮料", IdeaTypes: []string{"名称", "玩法"}, ProductDirections: []string{"饮料"}}
 	content := encodeJSON(result)
 	writeJSON(w, 200, map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": content}, "finish_reason": "stop"}}})
 }

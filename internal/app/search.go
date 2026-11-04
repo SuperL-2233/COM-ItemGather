@@ -81,8 +81,8 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	like := "%" + escapeLike(query) + "%"
 	if includes("ideas") {
-		sql := `SELECT i.id FROM ideas i WHERE i.deleted_at IS NULL AND (?='' OR i.original_content LIKE ? ESCAPE '\' OR i.content LIKE ? ESCAPE '\' OR i.display_title LIKE ? ESCAPE '\' OR i.summary LIKE ? ESCAPE '\' OR i.name_candidates_json LIKE ? ESCAPE '\' OR i.tags_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM idea_attributes a WHERE a.idea_id=i.id AND (a.key LIKE ? ESCAPE '\' OR a.value LIKE ? ESCAPE '\')))`
-		args := []any{query, like, like, like, like, like, like, like, like}
+		sql := `SELECT i.id FROM ideas i WHERE i.deleted_at IS NULL AND (?='' OR i.original_content LIKE ? ESCAPE '\' OR i.content LIKE ? ESCAPE '\' OR i.display_title LIKE ? ESCAPE '\' OR i.summary LIKE ? ESCAPE '\' OR i.notes LIKE ? ESCAPE '\' OR i.idea_types_json LIKE ? ESCAPE '\' OR i.product_directions_json LIKE ? ESCAPE '\')`
+		args := []any{query, like, like, like, like, like, like, like}
 		for _, filter := range []struct {
 			column string
 			values []string

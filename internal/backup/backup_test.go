@@ -23,7 +23,9 @@ func TestBackupCanRestoreDatabaseAndAttachments(t *testing.T) {
 	if err = database.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	db.Exec("INSERT INTO tags(id,name,created_at) VALUES(?,?,datetime('now'))", "tag-1", "青苹果")
+	if _, err = db.Exec("INSERT INTO product_statuses(id,name,created_at) VALUES(?,?,datetime('now'))", "status-1", "青苹果"); err != nil {
+		t.Fatal(err)
+	}
 	attachments := filepath.Join(dir, "attachments")
 	os.MkdirAll(attachments, 0o700)
 	os.WriteFile(filepath.Join(attachments, "image.jpg"), []byte("original-image"), 0o600)
@@ -90,7 +92,7 @@ func TestBackupCanRestoreDatabaseAndAttachments(t *testing.T) {
 	}
 	defer restoredDB.Close()
 	var name string
-	if err = restoredDB.QueryRow("SELECT name FROM tags WHERE id='tag-1'").Scan(&name); err != nil || name != "青苹果" {
+	if err = restoredDB.QueryRow("SELECT name FROM product_statuses WHERE id='status-1'").Scan(&name); err != nil || name != "青苹果" {
 		t.Fatalf("restored data mismatch %q %v", name, err)
 	}
 	data, _ := os.ReadFile(filepath.Join(restored, "attachments/image.jpg"))

@@ -22,7 +22,7 @@ func TestRestoreReplacesDatabaseAndAttachments(t *testing.T) {
 	if err = database.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("INSERT INTO tags(id,name,created_at) VALUES('restored-tag','原始标签',datetime('now'))"); err != nil {
+	if _, err = db.Exec("INSERT INTO product_statuses(id,name,created_at) VALUES('restored-status','原始状态',datetime('now'))"); err != nil {
 		t.Fatal(err)
 	}
 	if err = os.MkdirAll(attachmentsPath, 0o700); err != nil {
@@ -62,7 +62,7 @@ func TestRestoreReplacesDatabaseAndAttachments(t *testing.T) {
 	}
 	defer restored.Close()
 	var name string
-	if err = restored.QueryRow("SELECT name FROM tags WHERE id='restored-tag'").Scan(&name); err != nil || name != "原始标签" {
+	if err = restored.QueryRow("SELECT name FROM product_statuses WHERE id='restored-status'").Scan(&name); err != nil || name != "原始状态" {
 		t.Fatalf("restored database mismatch: %q %v", name, err)
 	}
 	data, err := os.ReadFile(filepath.Join(attachmentsPath, "original.png"))

@@ -141,7 +141,7 @@ useEvents(() => { if (active()) { if (refresh()) { append = false; preserveDepth
       <p v-if="syncState" class="composer-status" :class="syncError ? 'error-text' : 'muted'" role="status">{{ syncState }}</p>
     </div>
     <div v-for="item in outbox" :key="item.id" class="outbox"><strong>{{ item.idea_id ? '部分已同步' : '已暂存在本机' }}</strong> · {{ item.text || `${item.files.length} 张图片` }} <span v-if="item.error" class="error-text">{{ item.error }}</span><button class="button-link" @click="syncItem(item)">重试</button></div>
-    <form class="toolbar" @submit.prevent="loadIdeas()"><input v-model="query" type="search" aria-label="搜索灵感" placeholder="搜索内容、标题或标签" /><FilterPopover id="idea-filter-popover" v-model="filters" label="灵感" :groups="filterGroups" /></form>
+    <form class="toolbar" @submit.prevent="loadIdeas()"><input v-model="query" type="search" aria-label="搜索灵感" placeholder="搜索内容、标题或分类" /><FilterPopover id="idea-filter-popover" v-model="filters" label="灵感" :groups="filterGroups" /></form>
     <p v-if="error" class="error-text">{{ error }} <button class="button-link" @click="loadIdeas()">重试</button></p><p v-if="loading && !ideas.length" class="muted">读取中…</p><div v-else-if="ideas.length" class="idea-list"><IdeaCard v-for="idea in ideas" :key="idea.id" :idea="idea" @changed="loadIdeas()" /></div><div v-else class="empty-state">还没有符合条件的灵感。直接从上方写下第一条吧。</div><button v-if="ideas.length < total" class="secondary load-more" :disabled="loading" @click="loadIdeas(false)">加载更多（{{ ideas.length }} / {{ total }}）</button>
   </section>
 </template>

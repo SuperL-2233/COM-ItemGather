@@ -26,7 +26,6 @@ const environment = {
   AI_WORKER_CONCURRENCY: '1',
 }
 const failedCalls = new Map()
-const generationCalls = new Map()
 const mock = createServer((request, response) => {
   let body = ''
   request.on('data', chunk => { body += chunk })
@@ -37,21 +36,18 @@ const mock = createServer((request, response) => {
     }
     const payload = JSON.parse(body)
     const content = payload.messages.at(-1).content
-    const generation = (generationCalls.get(content) || 0) + 1
-    generationCalls.set(content, generation)
     if (content.startsWith('整理重试验收') && (failedCalls.get(content) || 0) < 2) {
       failedCalls.set(content, (failedCalls.get(content) || 0) + 1)
       response.writeHead(500).end()
       return
     }
+    const soda = content === '一款叫绿色风暴的青苹果汽水' || content.startsWith('分类精简验收')
+    const nameOnly = content === '绿色风暴' || content.endsWith('先记下这个名字')
     const result = {
-      display_title: content === '绿色风暴' ? content : content.slice(0, 80),
-      summary: content === '绿色风暴' ? '青苹果饮料' : content.slice(0, 200),
-      name_candidates: content === '绿色风暴' ? ['绿色风暴'] : [],
-      idea_types: content === '绿色风暴' ? ['名称'] : [],
-      product_directions: content === '绿色风暴' ? ['饮料'] : [],
-      tags: [],
-      attributes: content === '绿色风暴' ? [{ key: '口味', value: '青苹果', certainty: 'tentative' }] : content === '属性替换验收' ? [{ key: '生成批次', value: generation === 1 ? '旧属性' : '新属性', certainty: 'asserted' }] : [],
+      display_title: content === '一款叫绿色风暴的青苹果汽水' ? '绿色风暴' : content.slice(0, 80),
+      summary: soda ? '青苹果饮料' : nameOnly ? '' : content.slice(0, 200),
+      idea_types: soda ? ['商品概念'] : nameOnly ? ['名称'] : [],
+      product_directions: soda ? ['饮料'] : [],
     }
     response.writeHead(200, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) }, finish_reason: 'stop' }] }))

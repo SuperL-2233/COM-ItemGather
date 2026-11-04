@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	"com-itemgather/internal/backup"
@@ -68,149 +66,6 @@ func (a *App) listTrash(w http.ResponseWriter, r *http.Request) {
 	extra["products"] = onlyProducts
 	extra["tools"] = tools
 	writeJSON(w, 200, extra)
-}
-
-func (a *App) listTags(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.QueryContext(r.Context(), "SELECT t.id,t.name,COUNT(it.idea_id) FROM tags t LEFT JOIN idea_tags it ON it.tag_id=t.id GROUP BY t.id,t.name ORDER BY t.name COLLATE NOCASE")
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer rows.Close()
-	items := []map[string]any{}
-	for rows.Next() {
-		var id, name string
-		var count int
-		rows.Scan(&id, &name, &count)
-		items = append(items, map[string]any{"id": id, "name": name, "idea_count": count})
-	}
-	writeJSON(w, 200, map[string]any{"items": items})
-}
-func (a *App) renameTag(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name string `json:"name"`
-	}
-	if err := decodeBody(w, r, &body); err != nil {
-		writeError(w, err)
-		return
-	}
-	name := clean(body.Name, 80)
-	if name == "" {
-		writeError(w, fail(422, "validation", "标签名不能为空"))
-		return
-	}
-	id := r.PathValue("id")
-	a.changeTag(w, r, id, &name)
-}
-func (a *App) deleteTag(w http.ResponseWriter, r *http.Request) {
-	a.changeTag(w, r, r.PathValue("id"), nil)
-}
-
-func (a *App) changeTag(w http.ResponseWriter, r *http.Request, id string, name *string) {
-	tx, err := a.db.BeginTx(r.Context(), nil)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer tx.Rollback()
-	var previous string
-	if err := tx.QueryRowContext(r.Context(), "SELECT name FROM tags WHERE id=?", id).Scan(&previous); err != nil {
-		writeError(w, ensureNoRows(err))
-		return
-	}
-	if name != nil && previous == *name {
-		writeJSON(w, 200, map[string]any{"ok": true})
-		return
-	}
-	rows, err := tx.QueryContext(r.Context(), "SELECT idea_id FROM idea_tags WHERE tag_id=? ORDER BY idea_id", id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
-		}
-		ids = append(ids, id)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if name == nil {
-		_, err = tx.ExecContext(r.Context(), "DELETE FROM tags WHERE id=?", id)
-	} else {
-		var exists int
-		if err = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM tags WHERE name=? COLLATE NOCASE AND id<>?", *name, id).Scan(&exists); err == nil && exists > 0 {
-			writeError(w, fail(409, "tag_exists", "标签名已存在"))
-			return
-		}
-		if err == nil {
-			_, err = tx.ExecContext(r.Context(), "UPDATE tags SET name=? WHERE id=?", *name, id)
-		}
-	}
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	userID := currentUser(r).ID
-	for _, ideaID := range ids {
-		if err := a.updateIdeaTagsTx(r.Context(), tx, ideaID, userID); err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	if err = tx.Commit(); err != nil {
-		writeError(w, err)
-		return
-	}
-	a.afterCommit()
-	writeJSON(w, 200, map[string]any{"ok": true})
-}
-
-func (a *App) updateIdeaTagsTx(ctx context.Context, tx *sql.Tx, ideaID, userID string) error {
-	item, err := loadIdea(ctx, tx, ideaID, userID, true, false)
-	if err != nil {
-		return err
-	}
-	before := ideaSnapshot(item)
-	tagRows, err := tx.QueryContext(ctx, "SELECT t.name FROM idea_tags it JOIN tags t ON t.id=it.tag_id WHERE it.idea_id=? ORDER BY t.name COLLATE NOCASE", ideaID)
-	if err != nil {
-		return err
-	}
-	defer tagRows.Close()
-	tags := []string{}
-	for tagRows.Next() {
-		var name string
-		if err := tagRows.Scan(&name); err != nil {
-			return err
-		}
-		tags = append(tags, name)
-	}
-	if err := tagRows.Err(); err != nil {
-		return err
-	}
-	tagRows.Close()
-	item.Tags = tags
-	if !slices.Contains(item.ManualFields, "tags") {
-		item.ManualFields = append(item.ManualFields, "tags")
-	}
-	slices.Sort(item.ManualFields)
-	item.Version++
-	item.UpdatedAt = now()
-	if _, err := tx.ExecContext(ctx, "UPDATE ideas SET tags_json=?,manual_fields_json=?,version=?,updated_at=? WHERE id=?", encodeJSON(item.Tags), encodeJSON(item.ManualFields), item.Version, item.UpdatedAt, ideaID); err != nil {
-		return err
-	}
-	if err := addRevision(ctx, tx, "idea", ideaID, item.Version, &userID, "update_tags", before, ideaSnapshot(item)); err != nil {
-		return err
-	}
-	return a.publish(tx, "idea.updated", "idea", ideaID)
 }
 
 func (a *App) creativeCatalog(ctx context.Context, userID string) (map[string]any, error) {
@@ -280,7 +135,7 @@ func (a *App) exportData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="com-itemgather-%s.json"`, time.Now().UTC().Format("20060102")))
-	extra["format_version"] = 2
+	extra["format_version"] = 3
 	extra["exported_at"] = now()
 	extra["attachments_note"] = "附件原件包含在服务器备份归档中。"
 	writeJSON(w, 200, extra)

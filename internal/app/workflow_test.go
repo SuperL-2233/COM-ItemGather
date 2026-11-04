@@ -20,7 +20,7 @@ func TestIdeaProductWorkflow(t *testing.T) {
 		t.Fatal("idempotent retry created another idea")
 	}
 	idea = waitAIStatus(t, client, idea.ID, "succeeded")
-	if idea.OriginalContent != "绿色风暴" || len(idea.Attributes) != 1 || idea.Attributes[0].Certainty != "tentative" {
+	if idea.OriginalContent != "绿色风暴" || len(idea.IdeaTypes) != 2 || len(idea.ProductDirections) != 1 {
 		t.Fatalf("unexpected organized idea %+v", idea)
 	}
 	status, data := client.request(t, "GET", "/api/ideas", nil)
@@ -28,8 +28,8 @@ func TestIdeaProductWorkflow(t *testing.T) {
 	page := decodeTestJSON[struct {
 		Items []Idea `json:"items"`
 	}](t, data)
-	if len(page.Items) != 1 || len(page.Items[0].Attributes) != 1 || page.Items[0].Attributes[0].Value != "青苹果" {
-		t.Fatalf("灵感列表没有返回动态属性: %+v", page.Items)
+	if len(page.Items) != 1 || len(page.Items[0].IdeaTypes) != 2 || len(page.Items[0].ProductDirections) != 1 || page.Items[0].ProductDirections[0] != "饮料" {
+		t.Fatalf("灵感列表没有返回灵感类型和商品方向: %+v", page.Items)
 	}
 	status, data = client.request(t, "PATCH", "/api/ideas/"+idea.ID, map[string]any{"version": idea.Version, "display_title": "人工标题"})
 	assertStatus(t, status, 200, data)
@@ -121,7 +121,7 @@ func TestIdeaProductWorkflow(t *testing.T) {
 		Products []Product `json:"products"`
 	}](t, data)
 	if len(search.Ideas) == 0 || len(search.Products) == 0 {
-		t.Fatal("Chinese content, attributes, or product search failed")
+		t.Fatal("Chinese content or product search failed")
 	}
 	status, data = client.request(t, "GET", "/api/ideas/"+idea.ID+"/revisions", nil)
 	assertStatus(t, status, 200, data)

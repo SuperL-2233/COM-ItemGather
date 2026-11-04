@@ -35,12 +35,11 @@ func mcpOutputSchemas() map[string]any {
 		}, "id", "kind", "title", "text", "url", "record", "related"),
 		"get_library_info": mcpObjectSchema(map[string]any{
 			"name": text, "counts": mcpObjectSchema(counts, mcpKinds...), "kinds": map[string]any{"type": "array", "items": kind},
-			"categories": choices, "statuses": choices, "tags": strings, "use_categories": strings,
-			"tags_truncated":    map[string]any{"type": "boolean"},
+			"categories": choices, "statuses": choices, "use_categories": strings,
 			"scope":             map[string]any{"type": "string", "const": mcpReadScope},
 			"default_page_size": map[string]any{"type": "integer"},
 			"max_page_size":     map[string]any{"type": "integer"},
 			"fields":            map[string]any{"type": "object", "additionalProperties": text},
-		}, "name", "counts", "kinds", "categories", "statuses", "tags", "use_categories", "tags_truncated", "scope", "default_page_size", "max_page_size", "fields"),
+		}, "name", "counts", "kinds", "categories", "statuses", "use_categories", "scope", "default_page_size", "max_page_size", "fields"),
 	}
 }

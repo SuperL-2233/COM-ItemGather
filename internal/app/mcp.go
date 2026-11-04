@@ -54,7 +54,7 @@ func (a *App) registerMCPRoutes() {
 				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: encodeJSON(value)}}}, value, nil
 			})
 	}
-	add("get_library_info", "Use first to understand the creative library: record counts, available categories/statuses/tags and field semantics. Reads current shared business data only.", map[string]any{}, []string{}, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("get_library_info", "Use first to understand the creative library: record counts, available categories/statuses and field semantics. Reads current shared business data only.", map[string]any{}, []string{}, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct{}
 		if err := decodeMCPArguments(raw, &args); err != nil {
 			return nil, err

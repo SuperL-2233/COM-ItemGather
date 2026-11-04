@@ -23,19 +23,11 @@ func (a *App) restoreIdeaRevision(w http.ResponseWriter, r *http.Request, versio
 		return
 	}
 	before := ideaSnapshot(item)
-	attrs, err := validAttributes(data.Attributes)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
 	item.DisplayTitle = data.DisplayTitle
 	item.Summary = data.Summary
 	item.Notes = data.Notes
-	item.NameCandidates = validStringList(data.NameCandidates, 100)
 	item.IdeaTypes = validStringList(data.IdeaTypes, 30)
 	item.ProductDirections = validStringList(data.ProductDirections, 30)
-	item.Tags = validStringList(data.Tags, 50)
-	item.Attributes = attrs
 	item.ManualFields = append([]string{}, data.ManualFields...)
 	if item.Content != data.Content {
 		item.Content = data.Content
@@ -49,7 +41,7 @@ func (a *App) restoreIdeaRevision(w http.ResponseWriter, r *http.Request, versio
 	}
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), `UPDATE ideas SET content=?,display_title=?,summary=?,notes=?,name_candidates_json=?,idea_types_json=?,product_directions_json=?,tags_json=?,manual_fields_json=?,content_version=?,ai_status=?,ai_error=?,version=?,updated_at=? WHERE id=? AND version=?`, item.Content, item.DisplayTitle, item.Summary, item.Notes, encodeJSON(item.NameCandidates), encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(item.Tags), encodeJSON(item.ManualFields), item.ContentVersion, item.AIStatus, item.AIError, item.Version, item.UpdatedAt, id, version)
+	result, err := tx.ExecContext(r.Context(), `UPDATE ideas SET content=?,display_title=?,summary=?,notes=?,idea_types_json=?,product_directions_json=?,manual_fields_json=?,content_version=?,ai_status=?,ai_error=?,version=?,updated_at=? WHERE id=? AND version=?`, item.Content, item.DisplayTitle, item.Summary, item.Notes, encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(item.ManualFields), item.ContentVersion, item.AIStatus, item.AIError, item.Version, item.UpdatedAt, id, version)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -57,14 +49,6 @@ func (a *App) restoreIdeaRevision(w http.ResponseWriter, r *http.Request, versio
 	count, _ := result.RowsAffected()
 	if count != 1 {
 		writeError(w, fail(409, "version_conflict", "记录版本已变化"))
-		return
-	}
-	if err = replaceIdeaAttributes(r.Context(), tx, id, attrs); err != nil {
-		writeError(w, err)
-		return
-	}
-	if err = replaceIdeaTags(r.Context(), tx, id, item.Tags); err != nil {
-		writeError(w, err)
 		return
 	}
 	if err = addRevision(r.Context(), tx, "idea", id, item.Version, &user.ID, "restore_revision", before, ideaSnapshot(item)); err != nil {

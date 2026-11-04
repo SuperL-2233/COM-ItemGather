@@ -22,8 +22,7 @@ var mcpKinds = []string{"idea", "company", "product", "tool", "recipe"}
 const mcpRecordIndex = `WITH records AS (
  SELECT 'idea' kind,i.id,COALESCE(NULLIF(i.display_title,''),NULLIF(substr(i.content,1,60),''),'未命名灵感') title,
  substr(COALESCE(NULLIF(i.summary,''),i.content),1,240) summary,i.updated_at,'' category,'' status,'' company_id,
- i.original_content||' '||i.content||' '||i.display_title||' '||i.summary||' '||i.notes||' '||i.name_candidates_json||' '||i.tags_json||' '||i.idea_types_json||' '||i.product_directions_json||' '||
- COALESCE((SELECT group_concat(a.key||' '||a.value,' ') FROM idea_attributes a WHERE a.idea_id=i.id),'') search_text,'' group_id
+ i.original_content||' '||i.content||' '||i.display_title||' '||i.summary||' '||i.notes||' '||i.idea_types_json||' '||i.product_directions_json search_text,'' group_id
  FROM ideas i WHERE i.deleted_at IS NULL
  UNION ALL
  SELECT p.item_kind,p.id,COALESCE(NULLIF(p.chinese_name,''),NULLIF(p.english_name,''),'未命名物品'),substr(p.description,1,240),p.updated_at,p.category,COALESCE(p.status_option_id,p.development_status),COALESCE(c.id,''),
@@ -265,8 +264,8 @@ func (a *App) mcpFetch(ctx context.Context, key string) (map[string]any, error) 
 			return nil, e
 		}
 		fields = map[string]any{"original_content": item.OriginalContent, "content": item.Content, "display_title": item.DisplayTitle, "summary": item.Summary,
-			"notes": item.Notes, "name_candidates": item.NameCandidates, "idea_types": item.IdeaTypes, "product_directions": item.ProductDirections, "tags": item.Tags,
-			"attributes": mcpAttributes(item.Attributes), "attachments": mcpAttachments(item.Attachments), "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "version": item.Version}
+			"notes": item.Notes, "idea_types": item.IdeaTypes, "product_directions": item.ProductDirections,
+			"attachments": mcpAttachments(item.Attachments), "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "version": item.Version}
 	case "product", "tool":
 		item, e := loadProduct(ctx, tx, id, false, false)
 		if e != nil {
@@ -353,21 +352,13 @@ func (a *App) mcpLibraryInfo(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	tags, err := queryIDs(ctx, a.db, "SELECT t.name FROM tags t WHERE EXISTS(SELECT 1 FROM idea_tags it JOIN ideas i ON i.id=it.idea_id AND i.deleted_at IS NULL WHERE it.tag_id=t.id) ORDER BY t.name LIMIT 501")
-	if err != nil {
-		return nil, err
-	}
-	tagsTruncated := len(tags) > 500
-	if tagsTruncated {
-		tags = tags[:500]
-	}
 	useCategories, err := queryIDs(ctx, a.db, "SELECT name FROM tool_use_categories ORDER BY name LIMIT 500")
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"name": "Call of Mommy 创意库", "counts": counts, "kinds": mcpKinds, "categories": categories, "statuses": statuses, "tags": tags, "tags_truncated": tagsTruncated, "use_categories": useCategories,
+	return map[string]any{"name": "Call of Mommy 创意库", "counts": counts, "kinds": mcpKinds, "categories": categories, "statuses": statuses, "use_categories": useCategories,
 		"scope": mcpReadScope, "default_page_size": 20, "max_page_size": 50,
-		"fields": map[string]string{"id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "动态设定属性；certainty 为 asserted/tentative/undecided",
+		"fields": map[string]string{"id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "商品与道具的动态设定属性；certainty 为 asserted/tentative/undecided", "idea_types": "灵感主要讨论的方面", "product_directions": "灵感中有明确依据的商品品类",
 			"related": "关联摘要；list_records 的 related_to 可分页读取所有关联", "verification": "配方验证状态 untested/verified/invalid", "attachments": "仅文件名、类型、大小、时间等元信息",
 			"relations":          "candidate/adopted/rejected 为灵感关联状态；company_item/recipe_output/recipe_ingredient 为公司物品/配方产物/配方材料",
 			"deleted_references": "已删除材料和产物仅保留引用 ID 与数量；详情不可读取"}}, nil

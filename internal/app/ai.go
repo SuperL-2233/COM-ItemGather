@@ -18,19 +18,19 @@ import (
 	"com-itemgather/internal/security"
 )
 
-//go:embed ai_prompt_v1.txt
-var aiSystemPromptV1 string
+//go:embed ai_prompt_v2.txt
+var aiSystemPromptV2 string
 
-const aiPromptVersion = "v1"
+const aiPromptVersion = "v2"
+
+var aiIdeaTypes = []string{"名称", "商品概念", "玩法", "包装", "世界观", "其他"}
+var aiProductDirections = []string{"饮料", "乳制品", "香肠", "罐头", "巧克力", "零食", "日用品", "其他"}
 
 type AIResult struct {
-	DisplayTitle      string      `json:"display_title"`
-	Summary           string      `json:"summary"`
-	NameCandidates    []string    `json:"name_candidates"`
-	IdeaTypes         []string    `json:"idea_types"`
-	ProductDirections []string    `json:"product_directions"`
-	Tags              []string    `json:"tags"`
-	Attributes        []Attribute `json:"attributes"`
+	DisplayTitle      string   `json:"display_title"`
+	Summary           string   `json:"summary"`
+	IdeaTypes         []string `json:"idea_types"`
+	ProductDirections []string `json:"product_directions"`
 }
 type AITask struct {
 	ID, IdeaID, SourceContent, Mode, Status, LastError         string
@@ -54,10 +54,11 @@ func parseAIResult(raw string) (AIResult, error) {
 	if err := decoder.Decode(&fields); err != nil {
 		return result, fmt.Errorf("模型返回了非法 JSON: %w", err)
 	}
-	if decoder.More() {
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
 		return result, errors.New("模型响应包含额外内容")
 	}
-	required := []string{"display_title", "summary", "name_candidates", "idea_types", "product_directions", "tags", "attributes"}
+	required := []string{"display_title", "summary", "idea_types", "product_directions"}
 	if len(fields) != len(required) {
 		return result, errors.New("模型响应字段数量不符合约定")
 	}
@@ -72,16 +73,10 @@ func parseAIResult(raw string) (AIResult, error) {
 			target = &result.DisplayTitle
 		case "summary":
 			target = &result.Summary
-		case "name_candidates":
-			target = &result.NameCandidates
 		case "idea_types":
 			target = &result.IdeaTypes
 		case "product_directions":
 			target = &result.ProductDirections
-		case "tags":
-			target = &result.Tags
-		case "attributes":
-			target = &result.Attributes
 		}
 		fieldDecoder := json.NewDecoder(bytes.NewReader(value))
 		fieldDecoder.DisallowUnknownFields()
@@ -95,26 +90,22 @@ func parseAIResult(raw string) (AIResult, error) {
 	if len([]rune(result.DisplayTitle)) > 160 || len([]rune(result.Summary)) > 4000 {
 		return result, errors.New("标题或摘要超出长度限制")
 	}
-	if len(result.NameCandidates) > 100 || len(result.IdeaTypes) > 30 || len(result.ProductDirections) > 30 || len(result.Tags) > 50 {
-		return result, errors.New("模型返回的数组过长")
+	if len(result.IdeaTypes) > len(aiIdeaTypes) || len(result.ProductDirections) > len(aiProductDirections) {
+		return result, errors.New("模型返回的分类数组过长")
 	}
-	result.NameCandidates = validStringList(result.NameCandidates, 100)
-	result.IdeaTypes = validStringList(result.IdeaTypes, 30)
-	result.ProductDirections = validStringList(result.ProductDirections, 30)
-	result.Tags = validStringList(result.Tags, 50)
-	for index, attr := range result.Attributes {
-		if strings.TrimSpace(attr.Key) == "" || len([]rune(attr.Key)) > 80 || len([]rune(attr.Value)) > 2000 {
-			return result, fmt.Errorf("属性 %d 的键值无效", index)
+	for field, values := range map[string][]string{"idea_types": result.IdeaTypes, "product_directions": result.ProductDirections} {
+		allowed := aiIdeaTypes
+		if field == "product_directions" {
+			allowed = aiProductDirections
 		}
-		if attr.Certainty != "asserted" && attr.Certainty != "tentative" && attr.Certainty != "undecided" {
-			return result, fmt.Errorf("属性 %d 的 certainty 无效", index)
+		for _, value := range values {
+			if !slices.Contains(allowed, strings.TrimSpace(value)) {
+				return result, fmt.Errorf("字段 %s 包含未允许的分类 %q", field, value)
+			}
 		}
 	}
-	attrs, err := validAttributes(result.Attributes)
-	if err != nil {
-		return result, err
-	}
-	result.Attributes = attrs
+	result.IdeaTypes = validStringList(result.IdeaTypes, len(aiIdeaTypes))
+	result.ProductDirections = validStringList(result.ProductDirections, len(aiProductDirections))
 	return result, nil
 }
 
@@ -123,7 +114,7 @@ func (a *App) organize(ctx context.Context, content string) (AIResult, error) {
 	if a.cfg.AIAPIKey == "" {
 		return result, &aiCallError{message: "尚未配置 AI API Key", retryable: false}
 	}
-	requestBody := map[string]any{"model": a.cfg.AIModel, "messages": []map[string]string{{"role": "system", "content": aiSystemPromptV1}, {"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "temperature": 0}
+	requestBody := map[string]any{"model": a.cfg.AIModel, "messages": []map[string]string{{"role": "system", "content": aiSystemPromptV2}, {"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "temperature": 0}
 	encoded, _ := json.Marshal(requestBody)
 	req, err := http.NewRequestWithContext(ctx, "POST", a.cfg.AIBaseURL+"/chat/completions", bytes.NewReader(encoded))
 	if err != nil {
@@ -375,20 +366,11 @@ func (w *AIWorker) process(ctx context.Context, task AITask) {
 	if manual["summary"] {
 		result.Summary = item.Summary
 	}
-	if manual["name_candidates"] {
-		result.NameCandidates = item.NameCandidates
-	}
 	if manual["idea_types"] {
 		result.IdeaTypes = item.IdeaTypes
 	}
 	if manual["product_directions"] {
 		result.ProductDirections = item.ProductDirections
-	}
-	if manual["tags"] {
-		result.Tags = item.Tags
-	}
-	if manual["attributes"] {
-		result.Attributes = item.Attributes
 	}
 	manualList := make([]string, 0, len(manual))
 	for field := range manual {
@@ -397,29 +379,16 @@ func (w *AIWorker) process(ctx context.Context, task AITask) {
 	slices.Sort(manualList)
 	item.DisplayTitle = result.DisplayTitle
 	item.Summary = result.Summary
-	item.NameCandidates = result.NameCandidates
 	item.IdeaTypes = result.IdeaTypes
 	item.ProductDirections = result.ProductDirections
-	item.Tags = result.Tags
-	item.Attributes = result.Attributes
 	item.ManualFields = manualList
 	item.AIStatus = "succeeded"
 	item.AIError = ""
 	item.Version++
 	item.UpdatedAt = now()
-	_, err = tx.Exec(`UPDATE ideas SET display_title=?,summary=?,name_candidates_json=?,idea_types_json=?,product_directions_json=?,tags_json=?,manual_fields_json=?,ai_status='succeeded',ai_error='',version=?,updated_at=? WHERE id=?`, item.DisplayTitle, item.Summary, encodeJSON(item.NameCandidates), encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(item.Tags), encodeJSON(manualList), item.Version, item.UpdatedAt, item.ID)
+	_, err = tx.Exec(`UPDATE ideas SET display_title=?,summary=?,idea_types_json=?,product_directions_json=?,manual_fields_json=?,ai_status='succeeded',ai_error='',version=?,updated_at=? WHERE id=?`, item.DisplayTitle, item.Summary, encodeJSON(item.IdeaTypes), encodeJSON(item.ProductDirections), encodeJSON(manualList), item.Version, item.UpdatedAt, item.ID)
 	if err != nil {
 		return
-	}
-	if !manual["attributes"] {
-		if err = replaceIdeaAttributes(context.Background(), tx, item.ID, item.Attributes); err != nil {
-			return
-		}
-	}
-	if !manual["tags"] {
-		if err = replaceIdeaTags(context.Background(), tx, item.ID, item.Tags); err != nil {
-			return
-		}
 	}
 	if err = addRevision(context.Background(), tx, "idea", item.ID, item.Version, nil, "ai_organize_"+aiPromptVersion, before, ideaSnapshot(item)); err != nil {
 		return

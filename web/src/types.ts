@@ -4,7 +4,7 @@ export interface Attachment { id: string; idea_id?: string; product_id?: string;
 export interface Link { item_kind?: 'product' | 'tool'; id: string; idea_id: string; product_id: string; status: 'candidate' | 'adopted' | 'rejected'; idea_title?: string; product_name?: string; created_at: string; updated_at: string }
 export interface Idea {
   id: string; client_id?: string; original_content: string; content: string; display_title: string; summary: string; notes: string
-  name_candidates: string[]; idea_types: string[]; product_directions: string[]; tags: string[]; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]
+  idea_types: string[]; product_directions: string[]; attachments: Attachment[]; links?: Link[]
   author_id: string; author_nickname: string; created_at: string; updated_at: string; version: number; content_version: number
   ai_status: 'idle' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'; ai_error?: string; favorite: boolean; product_count: number; deleted_at?: string
 }

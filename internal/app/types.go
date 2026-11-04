@@ -66,12 +66,9 @@ type Idea struct {
 	DisplayTitle      string       `json:"display_title"`
 	Summary           string       `json:"summary"`
 	Notes             string       `json:"notes"`
-	NameCandidates    []string     `json:"name_candidates"`
 	IdeaTypes         []string     `json:"idea_types"`
 	ProductDirections []string     `json:"product_directions"`
-	Tags              []string     `json:"tags"`
 	ManualFields      []string     `json:"-"`
-	Attributes        []Attribute  `json:"attributes"`
 	Attachments       []Attachment `json:"attachments"`
 	Links             []Link       `json:"links,omitempty"`
 	AuthorID          string       `json:"author_id"`
