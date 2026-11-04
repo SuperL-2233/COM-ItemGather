@@ -275,16 +275,18 @@ func (a *App) creativeCatalog(ctx context.Context, userID string, includeDeleted
 		}
 		extra["companies"] = companies
 		groups := []RecipeGroup{}
+		activeGroups := map[string]bool{}
 		for _, item := range extra["recipe_groups"].([]RecipeGroup) {
 			if item.DeletedAt == "" {
 				groups = append(groups, item)
+				activeGroups[item.ID] = true
 			}
 		}
 		extra["recipe_groups"] = groups
 		recipes := []Recipe{}
 		activeRecipes := map[string]bool{}
 		for _, item := range extra["recipes"].([]Recipe) {
-			if item.DeletedAt == "" {
+			if item.DeletedAt == "" && activeGroups[item.GroupID] {
 				recipes = append(recipes, item)
 				activeRecipes[item.ID] = true
 			}

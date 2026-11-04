@@ -36,7 +36,13 @@ func (a *App) createAgentToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) listAgentTokens(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.QueryContext(r.Context(), "SELECT id,created_at,expires_at,COALESCE(last_used_at,''),COALESCE(revoked_at,'') FROM agent_tokens WHERE created_by=? ORDER BY created_at DESC LIMIT 20", currentUser(r).ID)
+	userID := currentUser(r).ID
+	rows, err := a.db.QueryContext(r.Context(), `SELECT id,created_at,expires_at,COALESCE(last_used_at,''),COALESCE(revoked_at,'')
+		FROM agent_tokens WHERE created_by=? AND (
+			(revoked_at IS NULL AND expires_at>?) OR id IN (
+				SELECT id FROM agent_tokens WHERE created_by=? ORDER BY created_at DESC,id DESC LIMIT 20
+			)
+		) ORDER BY created_at DESC,id DESC`, userID, now(), userID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -50,6 +56,10 @@ func (a *App) listAgentTokens(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		writeError(w, err)
+		return
 	}
 	writeJSON(w, 200, map[string]any{"items": items})
 }

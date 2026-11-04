@@ -28,6 +28,28 @@ func agentRequest(t *testing.T, environment *testEnvironment, token, path string
 	return response.StatusCode, data
 }
 
+func createTestAgentToken(t *testing.T, client *testClient) AgentToken {
+	t.Helper()
+	status, data := client.request(t, http.MethodPost, "/api/agent-tokens", nil)
+	assertStatus(t, status, 201, data)
+	return decodeTestJSON[AgentToken](t, data)
+}
+
+func listTestAgentTokens(t *testing.T, client *testClient) []AgentToken {
+	t.Helper()
+	status, data := client.request(t, http.MethodGet, "/api/agent-tokens", nil)
+	assertStatus(t, status, 200, data)
+	listed := decodeTestJSON[struct {
+		Items []AgentToken `json:"items"`
+	}](t, data)
+	for _, item := range listed.Items {
+		if item.Token != "" {
+			t.Fatal("令牌列表不应返回完整 Token")
+		}
+	}
+	return listed.Items
+}
+
 func TestAgentTokenCatalogLifecycle(t *testing.T) {
 	environment := newTestEnvironment(t, nil)
 	client := newAdminClient(t, environment)
@@ -106,4 +128,68 @@ func TestAgentTokenCatalogLifecycle(t *testing.T) {
 	assertStatus(t, status, 200, data)
 	status, data = agentRequest(t, environment, created.Token, "/api/agent/v1/catalog")
 	assertStatus(t, status, 401, data)
+}
+
+func TestAgentTokenListKeepsAllActiveTokensAndRecentHistory(t *testing.T) {
+	environment := newTestEnvironment(t, nil)
+	client := newAdminClient(t, environment)
+	tokens := make([]AgentToken, 25)
+	for i := range tokens {
+		tokens[i] = createTestAgentToken(t, client)
+	}
+	createTestUser(t, environment.db, "other", "member")
+	other := newTestClient(t, environment.server)
+	other.login(t, "other", "correct-horse-42")
+	foreign := createTestAgentToken(t, other)
+
+	listed := listTestAgentTokens(t, client)
+	if len(listed) != len(tokens) {
+		t.Fatalf("所有有效令牌都应可管理: got %d, want %d", len(listed), len(tokens))
+	}
+	for i, item := range listed {
+		if item.ID != tokens[len(tokens)-1-i].ID {
+			t.Fatal("有效令牌列表遗漏记录、包含其他账号或未按创建时间倒序排列")
+		}
+	}
+	status, data := client.request(t, http.MethodDelete, "/api/agent-tokens/"+listed[len(listed)-1].ID, nil)
+	assertStatus(t, status, 200, data)
+	status, data = agentRequest(t, environment, tokens[0].Token, "/api/agent/v1/catalog")
+	assertStatus(t, status, 401, data)
+
+	// Keep one old token active while newer records become expired or revoked.
+	for i := 2; i < len(tokens); i++ {
+		if i%2 == 0 {
+			_, err := environment.db.Exec("UPDATE agent_tokens SET expires_at=? WHERE id=?", time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano), tokens[i].ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			status, data = client.request(t, http.MethodDelete, "/api/agent-tokens/"+tokens[i].ID, nil)
+			assertStatus(t, status, 200, data)
+		}
+	}
+	listed = listTestAgentTokens(t, client)
+	if len(listed) != 21 {
+		t.Fatalf("应返回旧的有效令牌及最近 20 条记录: got %d", len(listed))
+	}
+	for i := 0; i < 20; i++ {
+		if listed[i].ID != tokens[len(tokens)-1-i].ID {
+			t.Fatal("最近记录有遗漏或混入其他账号的令牌")
+		}
+	}
+	if listed[20].ID != tokens[1].ID {
+		t.Fatal("较早的有效令牌不应被最近记录挤出列表")
+	}
+	status, data = agentRequest(t, environment, tokens[1].Token, "/api/agent/v1/catalog")
+	assertStatus(t, status, 200, data)
+	status, data = client.request(t, http.MethodDelete, "/api/agent-tokens/"+listed[20].ID, nil)
+	assertStatus(t, status, 200, data)
+	status, data = agentRequest(t, environment, tokens[1].Token, "/api/agent/v1/catalog")
+	assertStatus(t, status, 401, data)
+	if len(listTestAgentTokens(t, client)) != 20 {
+		t.Fatal("没有有效令牌时，历史记录应限制为最近 20 条")
+	}
+	if items := listTestAgentTokens(t, other); len(items) != 1 || items[0].ID != foreign.ID {
+		t.Fatal("各账号的令牌列表应独立")
+	}
 }
