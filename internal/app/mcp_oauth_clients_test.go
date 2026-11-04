@@ -3,11 +3,13 @@ package app
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"com-itemgather/internal/security"
@@ -25,11 +27,29 @@ func chatGPTClientFixture(t *testing.T) ([]byte, oauthClientMetadata) {
 	return raw, decodeTestJSON[oauthClientMetadata](t, raw)
 }
 
-func TestMCPChatGPTCIMDAuthorization(t *testing.T) {
+func TestMCPChatGPTAuthorization(t *testing.T) {
+	for _, registration := range []string{"pre_registered", "cimd"} {
+		t.Run(registration, func(t *testing.T) { testChatGPTAuthorization(t, registration) })
+	}
+}
+
+func testChatGPTAuthorization(t *testing.T, registration string) {
+	t.Helper()
 	raw, metadata := chatGPTClientFixture(t)
 	env := newTestEnvironment(t, nil)
 	owner := newAdminClient(t, env)
+	if registration == "cimd" {
+		if _, err := env.db.Exec("DELETE FROM mcp_oauth_clients WHERE id=?", metadata.ClientID); err != nil {
+			t.Fatal(err)
+		}
+	} else if _, err := env.db.Exec("UPDATE mcp_oauth_clients SET metadata_at='2000-01-01T00:00:00Z' WHERE id=?", metadata.ClientID); err != nil {
+		t.Fatal(err)
+	}
 	env.app.oauthHTTP = &http.Client{Transport: mcpRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if registration == "pre_registered" {
+			t.Error("pre-registered ChatGPT authorization must not depend on a metadata request, even after an hour")
+			return nil, errors.New("metadata network unavailable")
+		}
 		if r.URL.String() != metadata.ClientID || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 			t.Error("CIMD fetch must use the client document URL without account credentials")
 		}
@@ -100,6 +120,60 @@ func TestMCPChatGPTCIMDAuthorization(t *testing.T) {
 	assertStatus(t, status, 200, data)
 	status, data, _ = testMCPRequest(t, env, refreshed.AccessToken, "tools/list", map[string]any{})
 	assertStatus(t, status, 401, data)
+}
+
+func TestMCPCodexPreRegisteredAuthorizationWithoutMetadataNetwork(t *testing.T) {
+	env := newTestEnvironment(t, nil)
+	owner := newAdminClient(t, env)
+	clientID := "https://chatgpt.com/oauth/codex/client.json"
+	env.app.oauthHTTP = &http.Client{Transport: mcpRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("pre-registered Codex must not fetch its metadata during authorization or token exchange")
+		return nil, errors.New("metadata network unavailable")
+	})}
+	pending, verifier := beginTestMCPAuthorization(t, env, clientID)
+	code := finishTestMCPAuthorization(t, owner, pending, true)
+	status, data := testMCPTokenForm(t, env, url.Values{"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {code},
+		"redirect_uri": {"http://127.0.0.1:8888/callback"}, "code_verifier": {verifier}, "resource": {env.app.mcpResource()}})
+	assertStatus(t, status, 200, data)
+	credentials := decodeTestJSON[testMCPCredentials](t, data)
+	testMCPData[map[string]any](t, testMCPCall(t, env, credentials.AccessToken, "get_library_info", map[string]any{}))
+}
+
+func TestMCPPreRegisteredClientCallbacksRemainExact(t *testing.T) {
+	env := newTestEnvironment(t, nil)
+	owner := newAdminClient(t, env)
+	_, metadata := chatGPTClientFixture(t)
+	var fetches atomic.Int32
+	env.app.oauthHTTP = &http.Client{Transport: mcpRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		fetches.Add(1)
+		return nil, errors.New("metadata network unavailable")
+	})}
+	parameters := url.Values{"response_type": {"code"}, "client_id": {metadata.ClientID}, "redirect_uri": {metadata.RedirectURIs[0]},
+		"scope": {mcpReadScope}, "resource": {env.app.mcpResource()}, "code_challenge_method": {"S256"}, "code_challenge": {strings.Repeat("A", 43)}}
+	for _, redirect := range []string{
+		"https://example.com/connector_platform_oauth_redirect",
+		metadata.RedirectURIs[0] + "/extra",
+		metadata.RedirectURIs[0] + "?next=https://example.com",
+		"http://chatgpt.com/connector_platform_oauth_redirect",
+		"http://127.0.0.1:8888/callback",
+	} {
+		parameters.Set("redirect_uri", redirect)
+		status, data := owner.request(t, "GET", "/api/mcp/oauth/authorize?"+parameters.Encode(), nil)
+		assertStatus(t, status, 400, data)
+	}
+	if fetches.Load() != 0 {
+		t.Fatal("pre-registered redirect validation must not use the metadata network")
+	}
+	// Similar URLs are still unregistered CIMD clients, not trusted identities.
+	parameters.Set("redirect_uri", metadata.RedirectURIs[0])
+	for _, clientID := range []string{metadata.ClientID + "?untrusted=true", "https://chatgpt.com.example.com/oauth/client.json"} {
+		parameters.Set("client_id", clientID)
+		status, data := owner.request(t, "GET", "/api/mcp/oauth/authorize?"+parameters.Encode(), nil)
+		assertStatus(t, status, 400, data)
+	}
+	if fetches.Load() != 2 {
+		t.Fatal("only exact pre-registered client IDs may skip remote metadata validation")
+	}
 }
 
 func TestMCPCIMDAuthMethodCompatibility(t *testing.T) {

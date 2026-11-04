@@ -146,13 +146,15 @@ MCP 只返回当前团队共享、未删除记录的业务字段。附件仅提�
 ### 授权与部署
 
 - 唯一授权范围为 `creative-library:read`。OAuth 复用网站账号与明确授权页，支持 CIMD 公共客户端，兼容 DCR；仅允许授权码 + S256 PKCE，回调地址精确匹配，字面量回环 IP 回调允许动态端口。
+- ChatGPT Web 和 Codex 的稳定公开客户端已按 OpenAI 支持的预注册方式配置：分别为 `https://chatgpt.com/oauth/client.json` 与 `https://chatgpt.com/oauth/codex/client.json`。只接受已登记的准确回调，授权与令牌交换无需服务器访问 ChatGPT 下载资料，适用于出站连接超时或受限的部署。其余客户端仍按 CIMD/DCR 验证；未预注册的资料 URL 无法获取时会拒绝授权。参见 [OpenAI OAuth 接入文档](https://developers.openai.com/plugins/build/auth)。
 - 访问令牌有效 15 分钟；刷新令牌轮换，授权最长有效 30 天。轮换前的访问令牌保留原有效期；旧刷新令牌被重复使用会撤销整组授权。用户可在设置中随时撤销，每次调用也会校验账号启用状态和授权有效期。
 - 数据库仅保存凭据哈希。授权码交换和刷新在事务内完成，一次性授权请求受网页 Session 与 CSRF 保护。CIMD 获取只允许 HTTPS 公网地址，并限制响应大小、超时和重定向。
 - `APP_PUBLIC_URL` 必须设置为客户端能访问的准确 HTTPS 站点根地址。按更新后的 Nginx 示例转发 `/api/mcp` 和三个 `/.well-known/` 路径，避免授权发现请求落到 SPA 页面或隐藏文件拦截规则。
 - 连接方仍须能到达 MCP 服务；私网部署可参考 [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) 单独配置接入。ChatGPT 的可用入口取决于账号与工作区权限。
 - 升级迁移 `015_mcp_oauth.sql` 自动作废旧快照令牌；旧 `/api/agent-tokens` 和 `/api/agent/v1/catalog` 接口已移除。
+- 升级到本次版本需重新构建 Go 二进制并重启后端；启动时自动运行 `016_pre_registered_mcp_clients.sql`，为现有 ChatGPT 客户端更新注册方式并保留既有连接和令牌。仅更新前端文件不会应用 OAuth 修复。
 
-验证包含官方 SDK 新旧协议互操作、OAuth/PKCE/并发交换/刷新重放/撤销、分页、删除引用过滤，以及浏览器中的登录、授权、拒绝和连接管理。已通过官方 [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector) 2.13.0 的 legacy/modern 工具发现、严格 Schema 检查及实际读取调用。
+验证包含官方 SDK 新旧协议互操作、OAuth/PKCE/并发交换/刷新重放/撤销、分页、删除引用过滤，以及浏览器中的登录、授权、拒绝和连接管理。预注册客户端回归还覆盖元数据网络完全不可用、资料时间戳过期、准确回调限制、已有连接迁移保留，以及 ChatGPT Web 固定身份的浏览器授权和真实只读调用。已通过官方 [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector) 2.13.0 的 legacy/modern 工具发现、严格 Schema 检查及实际读取调用。
 
 ## 环境变量
 

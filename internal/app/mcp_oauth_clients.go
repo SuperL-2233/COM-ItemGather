@@ -106,15 +106,17 @@ func (a *App) oauthClient(ctx context.Context, id string) (oauthClientMetadata, 
 	if id == "" || len(id) > 2048 {
 		return item, errors.New("invalid client ID")
 	}
-	var redirects, metadataAt string
-	err := a.oauthDB(ctx).QueryRowContext(ctx, "SELECT name,redirect_uris,metadata_at FROM mcp_oauth_clients WHERE id=?", id).Scan(&item.ClientName, &redirects, &metadataAt)
+	var redirects, metadataAt, registrationType string
+	err := a.oauthDB(ctx).QueryRowContext(ctx, "SELECT name,redirect_uris,metadata_at,registration_type FROM mcp_oauth_clients WHERE id=?", id).Scan(&item.ClientName, &redirects, &metadataAt, &registrationType)
 	if err == nil {
 		if err := json.Unmarshal([]byte(redirects), &item.RedirectURIs); err != nil {
 			return item, err
 		}
 		item.ClientID = id
 		at, _ := time.Parse(time.RFC3339Nano, metadataAt)
-		if !strings.HasPrefix(id, "https://") || time.Since(at) < time.Hour {
+		// A pre-registered client can have an HTTPS ID too. Its local policy
+		// must not expire into a remote CIMD fetch during authorization.
+		if registrationType != "cimd" || time.Since(at) < time.Hour {
 			return item, nil
 		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -145,7 +147,7 @@ func (a *App) oauthClient(ctx context.Context, id string) (oauthClientMetadata, 
 	if err := validateMCPClient(&item); err != nil {
 		return item, err
 	}
-	_, err = a.oauthDB(ctx).ExecContext(ctx, `INSERT INTO mcp_oauth_clients(id,name,redirect_uris,metadata_at,created_at) VALUES(?,?,?,?,?)
+	_, err = a.oauthDB(ctx).ExecContext(ctx, `INSERT INTO mcp_oauth_clients(id,name,redirect_uris,metadata_at,created_at,registration_type) VALUES(?,?,?,?,?,'cimd')
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name,redirect_uris=excluded.redirect_uris,metadata_at=excluded.metadata_at`, id, item.ClientName, encodeJSON(item.RedirectURIs), now(), now())
 	return item, err
 }

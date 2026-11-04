@@ -17,13 +17,13 @@ async function authorizationURL(page: Page, baseURL: string) {
   return { url: `/api/mcp/oauth/authorize?${params}`, clientID, verifier }
 }
 
-async function logInForConsent(page: Page) {
+async function logInForConsent(page: Page, clientName = '浏览器验收客户端') {
   await expect(page).toHaveURL(/\/login\?redirect=/)
   await page.getByLabel('用户名').fill('admin')
   await page.getByLabel('密码', { exact: true }).fill('e2e-admin-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page).toHaveURL(/\/mcp\/authorize\?request=/)
-  await expect(page.getByRole('heading', { name: '浏览器验收客户端' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: clientName, exact: true })).toBeVisible()
 }
 
 test('MCP 登录授权、读取工具与设置中撤销连接', async ({ page, baseURL }) => {
@@ -73,4 +73,39 @@ test('手机授权页可拒绝，且不会产生授权码', async ({ page, baseU
   const callback = new URL(page.url())
   expect(callback.searchParams.get('error')).toBe('access_denied')
   expect(callback.searchParams.has('code')).toBe(false)
+})
+
+test('ChatGPT Web 固定客户端无需下载资料即可完成登录、PKCE 授权和只读调用', async ({ page, baseURL }) => {
+  const clientID = 'https://chatgpt.com/oauth/client.json'
+  const redirectURI = 'https://chatgpt.com/connector_platform_oauth_redirect'
+  const verifier = randomBytes(48).toString('base64url')
+  const params = new URLSearchParams({
+    client_id: clientID, redirect_uri: redirectURI, response_type: 'code',
+    scope: 'creative-library:read', resource: `${baseURL}/api/mcp`, state: 'chatgpt-web-state', ui_locales: 'zh-CN',
+    code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+  })
+  // Keep the browser callback local to this test; the authorization and token
+  // requests use the actual backend and the same stable identity as ChatGPT.
+  await page.route(`${redirectURI}**`, route => route.fulfill({ contentType: 'text/html', body: '<h1>ChatGPT 已收到授权结果</h1>' }))
+  await page.goto(`/api/mcp/oauth/authorize?${params}`)
+  await logInForConsent(page, 'ChatGPT')
+  await expect(page.getByText('此授权不能修改内容', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: '允许只读访问', exact: true }).click()
+  await expect(page).toHaveURL(url => url.origin + url.pathname === redirectURI)
+  const callback = new URL(page.url())
+  expect(callback.searchParams.get('state')).toBe('chatgpt-web-state')
+  expect(callback.searchParams.get('iss')).toBe(baseURL)
+  const tokenResponse = await page.request.post(`${baseURL}/api/mcp/oauth/token`, {
+    form: { client_id: clientID, grant_type: 'authorization_code', code: callback.searchParams.get('code')!,
+      code_verifier: verifier, redirect_uri: redirectURI, resource: `${baseURL}/api/mcp` },
+  })
+  expect(tokenResponse.ok(), await tokenResponse.text()).toBeTruthy()
+  const credentials = await tokenResponse.json()
+  expect(credentials.scope).toBe('creative-library:read')
+  const result = await page.request.post(`${baseURL}/api/mcp`, {
+    headers: { Authorization: `Bearer ${credentials.access_token}`, Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-11-25' },
+    data: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_library_info', arguments: {} } },
+  })
+  expect(result.ok(), await result.text()).toBeTruthy()
+  expect((await result.json()).result.isError).not.toBe(true)
 })
