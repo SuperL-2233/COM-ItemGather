@@ -213,83 +213,120 @@ func (a *App) updateIdeaTagsTx(ctx context.Context, tx *sql.Tx, ideaID, userID s
 	return a.publish(tx, "idea.updated", "idea", ideaID)
 }
 
-func (a *App) exportData(w http.ResponseWriter, r *http.Request) {
-	ideaIDs := []string{}
-	rows, err := a.db.QueryContext(r.Context(), "SELECT id FROM ideas ORDER BY created_at")
+func (a *App) creativeCatalog(ctx context.Context, userID string, includeDeleted bool) (map[string]any, error) {
+	where := " WHERE deleted_at IS NULL"
+	if includeDeleted {
+		where = ""
+	}
+	ideaIDs, err := queryIDs(ctx, a.db, "SELECT id FROM ideas"+where+" ORDER BY created_at")
 	if err != nil {
-		writeError(w, err)
-		return
+		return nil, err
 	}
-	for rows.Next() {
-		var id string
-		rows.Scan(&id)
-		ideaIDs = append(ideaIDs, id)
-	}
-	rows.Close()
 	ideas := []Idea{}
 	for _, id := range ideaIDs {
-		item, loadErr := loadIdea(r.Context(), a.db, id, currentUser(r).ID, true, false)
+		item, loadErr := loadIdea(ctx, a.db, id, userID, true, false)
 		if loadErr != nil {
-			writeError(w, loadErr)
-			return
+			return nil, loadErr
 		}
 		ideas = append(ideas, item)
 	}
-	productIDs := []string{}
-	rows, err = a.db.QueryContext(r.Context(), "SELECT id FROM products ORDER BY created_at")
+	productIDs, err := queryIDs(ctx, a.db, "SELECT id FROM products"+where+" ORDER BY created_at")
 	if err != nil {
-		writeError(w, err)
-		return
+		return nil, err
 	}
-	for rows.Next() {
-		var id string
-		rows.Scan(&id)
-		productIDs = append(productIDs, id)
-	}
-	rows.Close()
 	products := []Product{}
 	for _, id := range productIDs {
-		item, loadErr := loadProduct(r.Context(), a.db, id, true, false)
+		item, loadErr := loadProduct(ctx, a.db, id, true, false)
 		if loadErr != nil {
-			writeError(w, loadErr)
-			return
+			return nil, loadErr
 		}
 		products = append(products, item)
 	}
-	links := []Link{}
-	linkRows, err := a.db.QueryContext(r.Context(), "SELECT id,idea_id,product_id,status,created_at,updated_at FROM idea_product_links ORDER BY created_at")
-	if err != nil {
-		writeError(w, err)
-		return
+	linkQuery := "SELECT l.id,l.idea_id,l.product_id,l.status,l.created_at,l.updated_at FROM idea_product_links l"
+	if !includeDeleted {
+		linkQuery += " JOIN ideas i ON i.id=l.idea_id JOIN products p ON p.id=l.product_id WHERE i.deleted_at IS NULL AND p.deleted_at IS NULL"
 	}
-	defer linkRows.Close()
+	linkRows, err := a.db.QueryContext(ctx, linkQuery+" ORDER BY l.created_at")
+	if err != nil {
+		return nil, err
+	}
+	links := []Link{}
 	for linkRows.Next() {
 		var link Link
-		linkRows.Scan(&link.ID, &link.IdeaID, &link.ProductID, &link.Status, &link.CreatedAt, &link.UpdatedAt)
+		if err = linkRows.Scan(&link.ID, &link.IdeaID, &link.ProductID, &link.Status, &link.CreatedAt, &link.UpdatedAt); err != nil {
+			linkRows.Close()
+			return nil, err
+		}
 		links = append(links, link)
 	}
 	linkRows.Close()
-	extra, err := a.catalogExport(r.Context(), true)
+	extra, err := a.catalogExport(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	if !includeDeleted {
+		companies := []Company{}
+		activeCompanies := map[string]bool{}
+		for _, item := range extra["companies"].([]Company) {
+			if item.DeletedAt == "" {
+				companies = append(companies, item)
+				activeCompanies[item.ID] = true
+			}
+		}
+		extra["companies"] = companies
+		groups := []RecipeGroup{}
+		for _, item := range extra["recipe_groups"].([]RecipeGroup) {
+			if item.DeletedAt == "" {
+				groups = append(groups, item)
+			}
+		}
+		extra["recipe_groups"] = groups
+		recipes := []Recipe{}
+		activeRecipes := map[string]bool{}
+		for _, item := range extra["recipes"].([]Recipe) {
+			if item.DeletedAt == "" {
+				recipes = append(recipes, item)
+				activeRecipes[item.ID] = true
+			}
+		}
+		extra["recipes"] = recipes
+		activeIdeas := map[string]bool{}
+		for _, item := range ideas {
+			activeIdeas[item.ID] = true
+		}
+		settingLinks := []settingLink{}
+		for _, link := range extra["setting_links"].([]settingLink) {
+			if activeIdeas[link.IdeaID] && ((link.EntityType == "company" && activeCompanies[link.EntityID]) || (link.EntityType == "recipe" && activeRecipes[link.EntityID])) {
+				settingLinks = append(settingLinks, link)
+			}
+		}
+		extra["setting_links"] = settingLinks
+	}
+	tools := []Product{}
+	onlyProducts := []Product{}
+	for _, item := range products {
+		if item.ItemKind == "tool" {
+			tools = append(tools, item)
+		} else {
+			onlyProducts = append(onlyProducts, item)
+		}
+	}
+	extra["ideas"] = ideas
+	extra["products"] = onlyProducts
+	extra["tools"] = tools
+	extra["links"] = links
+	return extra, nil
+}
+
+func (a *App) exportData(w http.ResponseWriter, r *http.Request) {
+	extra, err := a.creativeCatalog(r.Context(), currentUser(r).ID, true)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="com-itemgather-%s.json"`, time.Now().UTC().Format("20060102")))
-	tools := []Product{}
-	onlyProducts := []Product{}
-	for _, p := range products {
-		if p.ItemKind == "tool" {
-			tools = append(tools, p)
-		} else {
-			onlyProducts = append(onlyProducts, p)
-		}
-	}
 	extra["format_version"] = 2
 	extra["exported_at"] = now()
-	extra["ideas"] = ideas
-	extra["products"] = onlyProducts
-	extra["tools"] = tools
-	extra["links"] = links
 	extra["attachments_note"] = "附件原件包含在服务器备份归档中。"
 	writeJSON(w, 200, extra)
 }

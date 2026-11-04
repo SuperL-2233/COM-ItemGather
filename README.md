@@ -83,17 +83,19 @@ npm run dev
 
 新增设定表：`companies`、`product_categories`、`product_statuses`、`tool_use_categories`、`recipe_groups`、`recipes`、`recipe_ingredients`、`setting_idea_links`。商品与道具共用物品身份，由 `products.item_kind` 区分，以共享附件、版本和灵感关联。
 
-主要表：`users`、`sessions`、`invitations`、`password_reset_tokens`、`ideas`、`idea_attributes`、`products`、`product_attributes`、`idea_product_links`、`favorites`、`tags`、`idea_tags`、`attachments`、`revisions`、`ai_tasks`、`events`、`audit_logs`。迁移位于 `internal/database/migrations/`，按版本执行，不会删库重建。
+主要表：`users`、`sessions`、`agent_tokens`、`invitations`、`password_reset_tokens`、`ideas`、`idea_attributes`、`products`、`product_attributes`、`idea_product_links`、`favorites`、`tags`、`idea_tags`、`attachments`、`revisions`、`ai_tasks`、`events`、`audit_logs`。迁移位于 `internal/database/migrations/`，按版本执行，不会删库重建。
 
 ## API 概览
 
-所有业务 API 都要求登录；非 GET 请求要求当前 Session 的 `X-CSRF-Token`。错误统一为：
+网页业务 API 都要求登录；非 GET 请求要求当前 Session 的 `X-CSRF-Token`。AI 创意库快照使用独立的短期 Bearer Token，不接受网页 Session。错误统一为：
 
 ```json
 {"error":{"code":"version_conflict","message":"这条灵感已被其他人修改","details":{}}}
 ```
 
 - `/api/auth/*`：登录、退出、当前用户、邀请注册、资料、密码修改和重置。
+- `/api/agent-tokens`：登录用户在“设置 → AI 只读访问”生成、查看和撤销 15 分钟只读 Token；数据库只保存令牌哈希。
+- `/api/agent/v1/catalog`：使用 `Authorization: Bearer <token>` 读取未删除创意库的 JSON 快照，包含灵感、公司、商品、道具、配方、选项和关联关系；不包含回收站、账号标识、AI 状态或附件下载地址。
 - `/api/sessions*`：设备列表、撤销指定设备、退出其他设备。
 - `/api/admin/*`：账号、邀请、密码重置（仅管理员）。
 - `/api/ideas`、`/api/products`：列表、创建、详情、编辑、软删除、恢复、永久删除和历史恢复。

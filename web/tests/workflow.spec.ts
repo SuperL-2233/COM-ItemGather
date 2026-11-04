@@ -467,3 +467,21 @@ test('商品搜索可以按创建者筛选', async ({ page, browser }) => {
     await expect(page.locator('.product-card')).toContainText('创建者验收：成员商品')
   } finally { await second.context.close() }
 })
+
+test('AI 只读 Token 可以读取创意库并在撤销后失效', async ({ page }) => {
+  await signIn(page, 'admin', adminPassword)
+  await page.getByRole('link', { name: /设置/ }).click()
+  await page.getByRole('button', { name: 'AI 只读访问', exact: true }).click()
+  await page.getByRole('button', { name: '生成 15 分钟只读 Token', exact: true }).click()
+  const command = await page.getByLabel('发给 AI 的 curl 命令').inputValue()
+  const token = command.match(/Bearer ([^"]+)/)?.[1]
+  expect(token).toBeTruthy()
+  const headers = { Authorization: `Bearer ${token}` }
+  const snapshot = await page.request.get('/api/agent/v1/catalog', { headers })
+  expect(snapshot.ok()).toBe(true)
+  expect((await snapshot.json()).schema_version).toBe(1)
+  await page.getByRole('button', { name: '撤销', exact: true }).click()
+  await expect(page.locator('.device-row')).toContainText('已撤销')
+  const revoked = await page.request.get('/api/agent/v1/catalog', { headers })
+  expect(revoked.status()).toBe(401)
+})
