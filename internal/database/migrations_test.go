@@ -150,6 +150,53 @@ func TestProductChineseNameMigration(t *testing.T) {
 	}
 }
 
+func TestLegacyIdeaAttributesAreClearedOnlyOnce(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO users(id,username,nickname,password_hash,created_at,updated_at) VALUES('u','u','成员','hash','2026-01-01','2026-01-01');
+INSERT INTO ideas(id,author_id,created_at,updated_at) VALUES('old','u','2026-01-01','2026-01-01'),('new','u','2026-01-01','2026-01-01'),('manual','u','2026-01-01','2026-01-01');
+UPDATE ideas SET manual_fields_json='["attributes"]' WHERE id='manual';
+INSERT INTO idea_attributes(id,idea_id,key,value) VALUES('old-attr','old','旧属性','旧值'),('new-attr','new','新属性','新值'),('manual-attr','manual','人工属性','人工值');
+INSERT INTO ai_tasks(id,idea_id,source_content,source_content_version,source_version,status,next_attempt_at,created_at,updated_at) VALUES('old-task','old','',1,1,'succeeded','2026-01-01','2026-01-01','2026-01-01'),('new-task','new','',1,1,'succeeded','2026-11-04','2026-11-04','2026-11-04T08:00:00Z');
+DELETE FROM schema_migrations WHERE version=17;`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.Query("SELECT id FROM idea_attributes ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining := []string{}
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		remaining = append(remaining, id)
+	}
+	rows.Close()
+	if !slices.Equal(remaining, []string{"manual-attr", "new-attr"}) {
+		t.Fatalf("旧属性清理范围错误: %v", remaining)
+	}
+	if err = Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err = db.QueryRow("SELECT COUNT(*) FROM idea_attributes").Scan(&count); err != nil || count != 2 {
+		t.Fatalf("迁移重复执行清除了新属性: count=%d err=%v", count, err)
+	}
+}
+
 func TestProductOptionsMigrationPreservesCatalogReferences(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {

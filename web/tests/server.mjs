@@ -26,6 +26,7 @@ const environment = {
   AI_WORKER_CONCURRENCY: '1',
 }
 const failedCalls = new Map()
+const generationCalls = new Map()
 const mock = createServer((request, response) => {
   let body = ''
   request.on('data', chunk => { body += chunk })
@@ -36,6 +37,8 @@ const mock = createServer((request, response) => {
     }
     const payload = JSON.parse(body)
     const content = payload.messages.at(-1).content
+    const generation = (generationCalls.get(content) || 0) + 1
+    generationCalls.set(content, generation)
     if (content.startsWith('整理重试验收') && (failedCalls.get(content) || 0) < 2) {
       failedCalls.set(content, (failedCalls.get(content) || 0) + 1)
       response.writeHead(500).end()
@@ -48,7 +51,7 @@ const mock = createServer((request, response) => {
       idea_types: content === '绿色风暴' ? ['名称'] : [],
       product_directions: content === '绿色风暴' ? ['饮料'] : [],
       tags: [],
-      attributes: content === '绿色风暴' ? [{ key: '口味', value: '青苹果', certainty: 'tentative' }] : [],
+      attributes: content === '绿色风暴' ? [{ key: '口味', value: '青苹果', certainty: 'tentative' }] : content === '属性替换验收' ? [{ key: '生成批次', value: generation === 1 ? '旧属性' : '新属性', certainty: 'asserted' }] : [],
     }
     response.writeHead(200, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) }, finish_reason: 'stop' }] }))
