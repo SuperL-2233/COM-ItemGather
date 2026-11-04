@@ -9,17 +9,20 @@ import ItemCard from '../components/ItemCard.vue'
 import FilterPopover from '../components/FilterPopover.vue'
 import { useLiveSearch } from '../composables/useLiveSearch'
 import { useEvents } from '../events'
+import { useListNavigation } from '../composables/listNavigation'
 
 interface SearchResult { ideas: Idea[]; products: Product[]; tools: Product[]; companies: Company[]; recipes: RecipeGroup[]; creators: { id: string; nickname: string }[]; has_more: Record<string, boolean>; limit: number }
 const route = useRoute(); const router = useRouter()
-const query = ref('')
-const filters = ref<Record<string, string[]>>({ kind: [], idea_type: [], direction: [], author: [] })
-const ideas = ref<Idea[]>([]); const products = ref<Product[]>([]); const tools = ref<Product[]>([]); const companies = ref<Company[]>([]); const recipes = ref<RecipeGroup[]>([])
-const creators = ref<SearchResult['creators']>([])
-const searched = ref(false)
-const visibleKinds = ref<string[]>([])
-const hasMore = ref<Record<string, boolean>>({})
-const limit = ref(50)
+type SearchState = SearchResult & { query: string; filters: Record<string, string[]>; searched: boolean; visibleKinds: string[] }
+const previous: SearchState | undefined = useListNavigation<SearchState>(() => ({ query: query.value, filters: filters.value, searched: searched.value, visibleKinds: visibleKinds.value, ideas: ideas.value, products: products.value, tools: tools.value, companies: companies.value, recipes: recipes.value, creators: creators.value, has_more: hasMore.value, limit: limit.value }))
+const query = ref(previous?.query || '')
+const filters = ref<Record<string, string[]>>(previous?.filters || { kind: [], idea_type: [], direction: [], author: [] })
+const ideas = ref<Idea[]>(previous?.ideas || []); const products = ref<Product[]>(previous?.products || []); const tools = ref<Product[]>(previous?.tools || []); const companies = ref<Company[]>(previous?.companies || []); const recipes = ref<RecipeGroup[]>(previous?.recipes || [])
+const creators = ref<SearchResult['creators']>(previous?.creators || [])
+const searched = ref(previous?.searched || false)
+const visibleKinds = ref<string[]>(previous?.visibleKinds || [])
+const hasMore = ref<Record<string, boolean>>(previous?.has_more || {})
+const limit = ref(previous?.limit || 50)
 const kindOptions = [{ value: 'ideas', label: '灵感' }, { value: 'products', label: '商品' }, { value: 'tools', label: '道具' }, { value: 'companies', label: '公司' }, { value: 'recipes', label: '合成配方' }]
 const includesIdeas = computed(() => !filters.value.kind.length || filters.value.kind.includes('ideas'))
 const groups = computed(() => [
@@ -40,7 +43,7 @@ const { loading, error, run: search, schedule, refresh } = useLiveSearch(async s
   const params = parameters()
   const urlQuery: Record<string, string | string[]> = {}
   for (const key of new Set(params.keys())) { const values = params.getAll(key); urlQuery[key] = values.length === 1 ? values[0] : values }
-  void router.replace({ query: urlQuery })
+  if (route.path === '/search') void router.replace({ path: '/search', query: urlQuery })
   const kinds = filters.value.kind.length ? [...filters.value.kind] : kindOptions.map(option => option.value)
   const ideaOnly = !!(filters.value.idea_type.length || filters.value.direction.length)
   return { result: await api<SearchResult>(`/search?${params}`, { signal }), searched: params.size > 0, kinds: ideaOnly ? kinds.filter(kind => kind === 'ideas') : kinds }
@@ -50,6 +53,7 @@ const { loading, error, run: search, schedule, refresh } = useLiveSearch(async s
 })
 let restoring = false
 function restoreRoute() {
+  if (route.path !== '/search') return
   const nextQuery = typeof route.query.q === 'string' ? route.query.q : ''
   const nextFilters = Object.fromEntries(Object.keys(filters.value).map(key => {
     const raw = route.query[key]
@@ -74,7 +78,7 @@ useEvents(refresh)
   <section>
     <div class="page-heading"><div><h1>全局搜索</h1><p>搜索灵感、商品、道具、公司和合成配方，也可通过材料查找产物。</p></div></div>
     <form class="toolbar" @submit.prevent="search">
-      <input v-model="query" type="search" maxlength="200" autofocus placeholder="输入中文或英文关键词" aria-label="全局搜索关键词" />
+      <input v-model="query" type="search" maxlength="200" :autofocus="!previous" placeholder="输入中文或英文关键词" aria-label="全局搜索关键词" />
       <FilterPopover id="search-filter-popover" :model-value="filters" label="搜索结果" :groups="groups" @update:model-value="changeFilters" />
     </form>
     <p v-if="filters.idea_type.length || filters.direction.length" class="muted">内容类型和商品方向用于筛选灵感。</p>

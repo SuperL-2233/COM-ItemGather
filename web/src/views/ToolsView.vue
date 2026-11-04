@@ -10,31 +10,40 @@ import ItemCard from '../components/ItemCard.vue'
 import ItemCreateDialog from '../components/ItemCreateDialog.vue'
 import ProductCatalogItem from '../components/ProductCatalogItem.vue'
 import { itemPath } from '../utils'
+import { loadListPages, useListNavigation } from '../composables/listNavigation'
 const router = useRouter(); const route = useRoute()
-const items = ref<Product[]>([]); const query = ref(''); const categories = ref<string[]>([]); const statuses = ref<ChoiceOption[]>([]); const creating = ref(false); const total = ref(0)
+type ToolListState = { items: Product[]; total: number; query: string; filters: Record<string, string[]>; layout: 'list' | 'grid' }
+const previous: ToolListState | undefined = useListNavigation<ToolListState>(() => ({ items: items.value, total: total.value, query: query.value, filters: filters.value, layout: layout.value }))
+const items = ref<Product[]>(previous?.items || []); const query = ref(previous?.query || ''); const categories = ref<string[]>([]); const statuses = ref<ChoiceOption[]>([]); const creating = ref(false); const total = ref(previous?.total || 0)
 const layout = ref<'list' | 'grid'>('list')
 try { if (localStorage.getItem('com-itemgather:tool-layout') === 'grid') layout.value = 'grid' } catch { /* Storage may be unavailable. */ }
+if (previous) layout.value = previous.layout
 function changeLayout(value: 'list' | 'grid') {
   layout.value = value
   try { localStorage.setItem('com-itemgather:tool-layout', value) } catch { /* Keep the selection for this visit. */ }
 }
-const filters = ref<Record<string, string[]>>({ use_category: [], source: [], status: [] })
+const filters = ref<Record<string, string[]>>(previous?.filters || { use_category: [], source: [], status: [] })
 const groups = computed(() => [
   { key: 'use_category', label: '使用类别', allLabel: '全部使用类别', options: categories.value },
   { key: 'source', label: '获取来源', allLabel: '全部获取来源', options: ['购买','NPC 赠送','任务奖励','事件奖励','成就解锁','合成获得','初始持有','其他'] },
   { key: 'status', label: '制作状态', allLabel: '全部状态', options: statuses.value },
 ])
 let append = false
+let preserveDepth = !!previous
 const { loading: busy, error, run, schedule, refresh: refreshSearch } = useLiveSearch(async signal => {
   const parameters = new URLSearchParams({ q: query.value, limit: '30', offset: String(append ? items.value.length : 0) })
   if (typeof route.query.company_id === 'string') parameters.set('company_id', route.query.company_id)
   for (const [key, values] of Object.entries(filters.value)) for (const value of values) parameters.append(key, value)
-  return api<Page<Product>>(`/tools?${parameters}`, { signal })
+  const fetchPage = (offset: number, limit: number) => {
+    parameters.set('offset', String(offset)); parameters.set('limit', String(limit))
+    return api<Page<Product>>(`/tools?${parameters}`, { signal })
+  }
+  return !append && preserveDepth ? loadListPages(Math.max(30, items.value.length), fetchPage) : fetchPage(append ? items.value.length : 0, 30)
 }, result => {
   items.value = append ? [...items.value, ...result.items.filter(item => !items.value.some(existing => existing.id === item.id))] : result.items
   total.value = result.total
 })
-function load() { append = false; void run() }
+function load(preserve = false) { append = false; preserveDepth = preserve; void run() }
 function more() { if (!busy.value) { append = true; void run() } }
 function created(item: Product) { creating.value = false; void router.push(itemPath(item)) }
 async function loadChoices() {
@@ -45,11 +54,11 @@ async function loadChoices() {
     if (active.length !== filters.value.status.length) filters.value = { ...filters.value, status: active }
   } catch (cause) { error.value = (cause as Error).message }
 }
-function refresh() { append = false; refreshSearch(); void loadChoices() }
-watch(query, () => { append = false; schedule() }, { flush: 'sync' })
-watch(filters, load)
-watch(() => route.query.company_id, load)
-onMounted(() => { load(); void loadChoices() })
+function refresh() { if (refreshSearch()) { append = false; preserveDepth = true }; void loadChoices() }
+watch(query, () => { append = false; preserveDepth = false; schedule() }, { flush: 'sync' })
+watch(filters, () => load())
+watch(() => route.query.company_id, () => load())
+onMounted(() => { load(true); void loadChoices() })
 useEvents(refresh)
 </script>
 <template>

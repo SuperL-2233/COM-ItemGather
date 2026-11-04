@@ -7,7 +7,10 @@ import { companyTitle } from '../utils'
 import { useEvents } from '../events'
 import { useLiveSearch } from '../composables/useLiveSearch'
 import CompanyCreateDialog from '../components/CompanyCreateDialog.vue'
-const router = useRouter(); const items = ref<Company[]>([]); const query = ref(''); const creating = ref(false);
+import { useListNavigation } from '../composables/listNavigation'
+type CompanyListState = { items: Company[]; query: string }
+const previous: CompanyListState | undefined = useListNavigation<CompanyListState>(() => ({ items: items.value, query: query.value }))
+const router = useRouter(); const items = ref<Company[]>(previous?.items || []); const query = ref(previous?.query || ''); const creating = ref(false);
 const { loading, error, run: load, schedule, refresh } = useLiveSearch(signal => api<{ items: Company[] }>(`/companies?q=${encodeURIComponent(query.value)}`, { signal }), result => { items.value = result.items })
 function created(company: Company) { creating.value = false; void router.push(`/companies/${company.id}`) }
 onMounted(load); watch(query, schedule, { flush: 'sync' }); useEvents(refresh)

@@ -103,8 +103,13 @@ test('离线草稿恢复、幂等重试和退出清理', async ({ page }) => {
       await route.abort('failed')
     } else await route.continue()
   })
+  // The previous offline error remains visible while automatic delivery starts.
+  // Retry only after the simulated lost response has actually failed.
+  const lostResponse = page.waitForEvent('requestfailed', request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/ideas')
   await page.context().setOffline(false)
   await page.goto('/ideas')
+  await lostResponse
+  await expect(page.locator('.composer-status')).toHaveText('同步失败，内容仍保留在本机')
   await expect(page.locator('.outbox .error-text')).toBeVisible()
   await page.getByRole('button', { name: '重试', exact: true }).click()
   await expect(page.locator('.idea-card').filter({ hasText: '断网也要保留' })).toHaveCount(1)

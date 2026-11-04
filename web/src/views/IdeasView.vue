@@ -8,13 +8,16 @@ import { useEvents } from '../events'
 import { toast } from '../utils'
 import FilterPopover from '../components/FilterPopover.vue'
 import { useLiveSearch } from '../composables/useLiveSearch'
+import { loadListPages, useListNavigation } from '../composables/listNavigation'
 
 const scope = currentOfflineScope()
 const requests = new AbortController()
 let disposed = false
 let draftChanged = false
 const active = () => !disposed && isOfflineScopeActive(scope)
-const text = ref(''); const files = ref<PendingFile[]>([]); const ideas = ref<Idea[]>([]); const total = ref(0); const composer = ref<HTMLTextAreaElement>(); const fileInput = ref<HTMLInputElement>(); const dragging = ref(false); const syncState = ref(''); const syncError = ref(false); const outbox = ref<OutboxItem[]>([]); const activeJob = ref(''); const syncing = new Set<string>(); let draftTimer: ReturnType<typeof setTimeout> | undefined;
+type IdeaListState = { items: Idea[]; total: number; query: string; filters: Record<string, string[]> }
+const previous: IdeaListState | undefined = useListNavigation<IdeaListState>(() => ({ items: ideas.value, total: total.value, query: query.value, filters: filters.value }))
+const text = ref(''); const files = ref<PendingFile[]>([]); const ideas = ref<Idea[]>(previous?.items || []); const total = ref(previous?.total || 0); const composer = ref<HTMLTextAreaElement>(); const fileInput = ref<HTMLInputElement>(); const dragging = ref(false); const syncState = ref(''); const syncError = ref(false); const outbox = ref<OutboxItem[]>([]); const activeJob = ref(''); const syncing = new Set<string>(); let draftTimer: ReturnType<typeof setTimeout> | undefined;
 const placeholder = '想到什么就写什么。每次记录一条灵感，名称、概念、玩法、包装都可以。'
 function addFiles(incoming: File[] | FileList) {
   const allowed = Array.from(incoming).filter(file => ['image/jpeg','image/png','image/webp'].includes(file.type))
@@ -88,25 +91,31 @@ async function syncAll() {
     await syncItem(item)
   }
 }
-const query = ref('')
-const filters = ref<Record<string, string[]>>({ scope: [] })
+const query = ref(previous?.query || '')
+const filters = ref<Record<string, string[]>>(previous?.filters || { scope: [] })
 const filterGroups = [{ key: 'scope', label: '浏览范围', allLabel: '全部灵感', multiple: false, options: [{ value: 'favorites', label: '收藏' }, { value: 'unlinked', label: '未关联商品／道具' }, { value: 'mine', label: '我创建的' }] }]
 let append = false
+let preserveDepth = !!previous
 const { loading, error, run, schedule, refresh } = useLiveSearch(signal => {
   const parameters = new URLSearchParams({ q: query.value, filter: filters.value.scope[0] || 'all', limit: '20', offset: String(append ? ideas.value.length : 0) })
-  return api<Page<Idea>>(`/ideas?${parameters}`, { accountID: scope.userID, signal })
+  const fetchPage = (offset: number, limit: number) => {
+    parameters.set('offset', String(offset)); parameters.set('limit', String(limit))
+    return api<Page<Idea>>(`/ideas?${parameters}`, { accountID: scope.userID, signal })
+  }
+  return !append && preserveDepth ? loadListPages(Math.max(20, ideas.value.length), fetchPage) : fetchPage(append ? ideas.value.length : 0, 20)
 }, result => {
   if (!active()) return
   ideas.value = append ? [...ideas.value, ...result.items.filter(item => !ideas.value.some(existing => existing.id === item.id))] : result.items
   total.value = result.total
 })
 loading.value = true
-function loadIdeas(reset = true) {
+function loadIdeas(reset = true, preserve = false) {
   if (!active() || (!reset && loading.value)) return
   append = !reset
+  preserveDepth = preserve
   return run()
 }
-watch(query, () => { append = false; schedule() }, { flush: 'sync' })
+watch(query, () => { append = false; preserveDepth = false; schedule() }, { flush: 'sync' })
 watch(filters, () => void loadIdeas())
 function online() { if (active()) { syncState.value = '网络已恢复'; void syncAll() } }
 onMounted(async () => {
@@ -114,14 +123,14 @@ onMounted(async () => {
   try { const draft = await getDraft(scope); if (active() && draft) { text.value = draft.text; files.value = draft.files || []; if (text.value || files.value.length) syncState.value = '已恢复本机草稿' } }
   catch { if (active()) syncState.value = '本机草稿不可用' }
   if (!active()) return
-  await Promise.all([loadIdeas(), refreshOutbox()])
+  await Promise.all([loadIdeas(true, true), refreshOutbox()])
   if (active()) await syncAll()
 })
 onUnmounted(() => {
   persistDraft(); disposed = true; requests.abort(); clearTimeout(draftTimer)
   window.removeEventListener('keydown', globalKey); window.removeEventListener('online', online); window.removeEventListener('pagehide', persistDraft)
 })
-useEvents(() => { if (active()) { append = false; refresh(); void refreshOutbox() } })
+useEvents(() => { if (active()) { if (refresh()) { append = false; preserveDepth = true }; void refreshOutbox() } })
 </script>
 <template>
   <section aria-labelledby="ideas-heading"><div class="page-heading"><div><h1 id="ideas-heading">灵感库</h1><p>不用填写标题或分类，先把想法记下来。</p></div></div>

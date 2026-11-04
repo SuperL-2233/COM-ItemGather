@@ -9,11 +9,14 @@ import type { ChoiceOption, Page, Product } from '../types'
 import { useEvents } from '../events'
 import FilterPopover from '../components/FilterPopover.vue'
 import { toast } from '../utils'
+import { loadListPages, useListNavigation } from '../composables/listNavigation'
 
 interface ProductFilterOptions { companies: string[]; categories: string[]; attributes: string[]; statuses: ChoiceOption[] }
 
 const route = useRoute()
-const products = ref<Product[]>([]); const total = ref(0); const query = ref(''); const loading = ref(true); const loadingMore = ref(false); const error = ref(''); const showCreate = ref(false);
+type ProductListState = { items: Product[]; total: number; query: string; filters: Record<string, string[]>; layout: 'list' | 'grid'; sort: ProductSort }
+const previous: ProductListState | undefined = useListNavigation<ProductListState>(() => ({ items: products.value, total: total.value, query: query.value, filters: filters.value, layout: layout.value, sort: sort.value }))
+const products = ref<Product[]>(previous?.items || []); const total = ref(previous?.total || 0); const query = ref(previous?.query || ''); const loading = ref(true); const loadingMore = ref(false); const error = ref(''); const showCreate = ref(false);
 const searchPending = ref(false)
 const selectionLocked = computed(() => loading.value || searchPending.value)
 const selecting = ref(false)
@@ -52,6 +55,7 @@ function batchSaved(count: number) { finishSelection(); refresh(); toast(`已更
 function reselectProducts() { clearSelection(); refresh() }
 const layout = ref<'list' | 'grid'>('list')
 try { if (localStorage.getItem('com-itemgather:product-layout') === 'grid') layout.value = 'grid' } catch { /* Storage may be unavailable. */ }
+if (previous) layout.value = previous.layout
 function changeLayout(value: 'list' | 'grid') {
   layout.value = value
   try { localStorage.setItem('com-itemgather:product-layout', value) } catch { /* Keep the selection for this visit. */ }
@@ -82,6 +86,7 @@ try {
   const stored = localStorage.getItem('com-itemgather:product-sort')
   if (sortGroups.some(group => group.options.some(option => option.value === stored))) sort.value = stored as ProductSort
 } catch { /* Use the default when storage is unavailable. */ }
+if (previous) sort.value = previous.sort
 function focusActiveSort() {
   document.getElementById(`product-sort-${sortOptions[activeSort.value].value}`)?.focus()
 }
@@ -130,7 +135,7 @@ function sortFocusOut(event: FocusEvent) {
   if (sortOpen.value && event.relatedTarget && !sortControl.value?.contains(event.relatedTarget as Node)) closeSort()
 }
 const filterOptions = ref<ProductFilterOptions>({ companies: [], categories: [], attributes: [], statuses: [{value:'concept',label:'构思中'},{value:'design',label:'设计中'},{value:'production',label:'制作中'},{value:'completed',label:'已完成'}] })
-const filters = ref<Record<string, string[]>>({ company: [], category: [], attribute: [], status: [] })
+const filters = ref<Record<string, string[]>>(previous?.filters || { company: [], category: [], attribute: [], status: [] })
 const filterGroups = computed(() => [
   { key: 'company', label: '所属公司', allLabel: '全部公司', options: filterOptions.value.companies },
   { key: 'category', label: '商品分类', allLabel: '全部分类', options: filterOptions.value.categories },
@@ -150,7 +155,7 @@ let requestID = 0
 let requestController: AbortController | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
-async function load(reset = true) {
+async function load(reset = true, preserveDepth = false) {
   if (!reset && (searchTimer || loading.value || loadingMore.value || products.value.length >= total.value)) return
   if (reset) {
     clearTimeout(searchTimer)
@@ -169,7 +174,14 @@ async function load(reset = true) {
     const parameters = new URLSearchParams({ q: query.value, sort: sort.value, limit: '30', offset: String(offset) })
     if (typeof route.query.company_id === 'string') parameters.set('company_id',route.query.company_id)
     for (const [key, values] of Object.entries(filters.value)) for (const value of values) parameters.append(key, value)
-    const result = await api<Page<Product>>(`/products?${parameters}`, { signal: requestController?.signal })
+    const signal = requestController?.signal
+    const fetchPage = (offset: number, limit: number) => {
+      parameters.set('offset', String(offset)); parameters.set('limit', String(limit))
+      return api<Page<Product>>(`/products?${parameters}`, { signal })
+    }
+    const result = reset && preserveDepth
+      ? await loadListPages(Math.max(30, products.value.length), fetchPage)
+      : await fetchPage(offset, 30)
     if (id !== requestID) return
     products.value = reset ? result.items : [...products.value, ...result.items.filter(item => !products.value.some(existing => existing.id === item.id))]
     total.value = result.total
@@ -209,7 +221,7 @@ async function loadFilters() {
   }
   catch (e) { error.value = (e as Error).message }
 }
-function refresh() { if (!searchTimer) void load(); void loadFilters() }
+function refresh() { if (!searchTimer) void load(true, true); void loadFilters() }
 watch(query, () => { clearSelection(); scheduleSearch() }, { flush: 'sync' })
 watch(sort, value => {
   try { localStorage.setItem('com-itemgather:product-sort', value) } catch { /* Keep the selection for this visit. */ }

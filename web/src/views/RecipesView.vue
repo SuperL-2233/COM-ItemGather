@@ -7,9 +7,13 @@ import { useEvents } from '../events'
 import { useLiveSearch } from '../composables/useLiveSearch'
 import ItemPicker from '../components/ItemPicker.vue'
 import RecipeCatalogItem from '../components/RecipeCatalogItem.vue'
-const router = useRouter(); const items = ref<RecipeGroup[]>([]); const query = ref(''); const picking = ref(false); const busy = ref(false);
+import { useListNavigation } from '../composables/listNavigation'
+type RecipeListState = { items: RecipeGroup[]; query: string; layout: 'list' | 'grid' }
+const previous: RecipeListState | undefined = useListNavigation<RecipeListState>(() => ({ items: items.value, query: query.value, layout: layout.value }))
+const router = useRouter(); const items = ref<RecipeGroup[]>(previous?.items || []); const query = ref(previous?.query || ''); const picking = ref(false); const busy = ref(false);
 const layout = ref<'list' | 'grid'>('list')
 try { if (localStorage.getItem('com-itemgather:recipe-layout') === 'grid') layout.value = 'grid' } catch { /* Storage may be unavailable. */ }
+if (previous) layout.value = previous.layout
 function changeLayout(value: 'list' | 'grid') {
   layout.value = value
   try { localStorage.setItem('com-itemgather:recipe-layout', value) } catch { /* Keep the selection for this visit. */ }

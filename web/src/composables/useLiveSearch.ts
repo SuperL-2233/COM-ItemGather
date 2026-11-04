@@ -35,7 +35,7 @@ export function useLiveSearch<T>(fetchResults: (signal: AbortSignal) => Promise<
   }
   function schedule() { cancel(); loading.value = true; error.value = ''; timer = setTimeout(() => void run(), 250) }
   // A remote update must not submit a half-typed query or bypass its debounce.
-  function refresh() { if (timer === undefined) schedule() }
+  function refresh() { if (timer !== undefined) return false; schedule(); return true }
   onUnmounted(() => { disposed = true; cancel() })
   return { loading, error, run, schedule, refresh, cancel }
 }

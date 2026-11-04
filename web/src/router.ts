@@ -1,8 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth, initializeAuth } from './api'
+import { cancelPendingScroll, restoreScroll, savedListPosition } from './composables/listNavigation'
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior(to, from, savedPosition) {
+    if (to.path === from.path && !savedPosition) return false
+    const position = savedPosition || savedListPosition(to.fullPath)
+    return position ? restoreScroll(position) : { left: 0, top: 0 }
+  },
   routes: [
     { path: '/', redirect: '/ideas' },
     { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
@@ -26,6 +32,7 @@ const router = createRouter({
   ],
 })
 router.beforeEach(async to => {
+  cancelPendingScroll()
   if (!auth.ready) await initializeAuth()
   if (!to.meta.public && !auth.user) return { path: '/login', query: { redirect: to.fullPath } }
   if (to.meta.public && auth.user && to.path === '/login') return '/ideas'
