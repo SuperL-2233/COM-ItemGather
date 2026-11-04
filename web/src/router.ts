@@ -21,6 +21,7 @@ const router = createRouter({
     { path: '/search', component: () => import('./views/SearchView.vue') },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
     { path: '/settings/options', component: () => import('./views/OptionSettingsView.vue') },
+    { path: '/mcp/authorize', component: () => import('./views/MCPAuthorizeView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/ideas' },
   ],
 })

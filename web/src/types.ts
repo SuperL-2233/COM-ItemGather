@@ -11,7 +11,7 @@ export interface Idea {
 export interface Product { item_kind: 'product' | 'tool'; company_id: string; company_deleted: boolean; use_category: string; tool_settings: ToolSettings; id: string; chinese_name: string; english_name: string; company: string; category: string; description: string; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]; development_status: string; development_status_label: string; development_status_color: string; created_by: string; created_at: string; updated_at: string; version: number; idea_count: number; deleted_at?: string }
 export interface Page<T> { items: T[]; total: number; limit: number; offset: number }
 export interface Session { id: string; device_name: string; remember: boolean; created_at: string; last_seen_at: string; expires_at: string; current: boolean }
-export interface AgentToken { id: string; token?: string; created_at: string; expires_at: string; last_used_at?: string; revoked_at?: string }
+export interface MCPConnection { id: string; client_name: string; client_id: string; scope: string; created_at: string; expires_at: string; last_used_at?: string; revoked_at?: string }
 export interface Revision { id: string; entity_type: string; entity_id: string; version: number; actor_id?: string; actor_nickname?: string; action: string; before: unknown; after: unknown; created_at: string }
 export interface SystemStatus { ai: { configured: boolean; base_url: string; model: string; timeout_seconds: number; max_retries: number; workers: number }; backup: { directory: string; interval: string; keep: number }; upload: { max_file_bytes: number; max_attachments: number; max_storage_bytes: number } }
 

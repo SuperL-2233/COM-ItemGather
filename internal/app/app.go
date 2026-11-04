@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"com-itemgather/internal/config"
+
+	"github.com/go-oauth2/oauth2/v4/server"
 )
 
 type contextKey string
@@ -31,6 +33,8 @@ type App struct {
 	limiter    *loginLimiter
 	apiLimiter *requestLimiter
 	runContext context.Context
+	oauth      *server.Server
+	oauthHTTP  *http.Client
 }
 
 type APIError struct {
@@ -50,6 +54,8 @@ func New(db *sql.DB, cfg config.Config, logger *log.Logger) *App {
 		logger = log.New(os.Stderr, "", log.LstdFlags)
 	}
 	a := &App{db: db, cfg: cfg, log: logger, mux: http.NewServeMux(), hub: NewHub(), limiter: newLoginLimiter(), apiLimiter: newRequestLimiter(300), runContext: context.Background()}
+	a.oauthHTTP = newMCPMetadataClient()
+	a.oauth = a.newOAuthServer()
 	a.routes()
 	a.ai = NewAIWorker(a)
 	return a
@@ -99,10 +105,7 @@ func (a *App) routes() {
 	handle("POST /api/admin/password-resets", a.createPasswordReset, true)
 	handle("GET /api/system/status", a.systemStatus, true)
 	handle("POST /api/system/backup", a.manualBackup, true)
-	handle("POST /api/agent-tokens", a.createAgentToken, true)
-	handle("GET /api/agent-tokens", a.listAgentTokens, true)
-	handle("DELETE /api/agent-tokens/{id}", a.revokeAgentToken, true)
-	handle("GET /api/agent/v1/catalog", a.requireAgentAuth(a.agentCatalog), false)
+	a.registerMCPRoutes()
 	handle("GET /api/ideas", a.listIdeas, true)
 	handle("POST /api/ideas", a.createIdea, true)
 	handle("GET /api/ideas/{id}", a.getIdea, true)
@@ -280,6 +283,10 @@ func (a *App) emit(eventType, entityType, id string) {
 	}
 }
 func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/.well-known/") {
+		writeError(w, fail(404, "not_found", "接口不存在"))
+		return
+	}
 	if r.Method != "GET" && r.Method != "HEAD" {
 		writeError(w, fail(405, "method_not_allowed", "不支持此方法"))
 		return

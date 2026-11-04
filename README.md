@@ -5,7 +5,7 @@
 ## 架构
 
 - Vue 3 + TypeScript + Vite，响应式桌面/手机界面、PWA、IndexedDB 草稿和离线待同步队列。
-- Go 1.24 后端，REST API、服务端 Session、SSE、持久化 AI Worker。
+- Go 1.25 后端，REST API、服务端 Session、SSE、持久化 AI Worker。
 - SQLite（WAL、外键、busy timeout、版本化迁移），附件保存在受保护文件目录。
 - 生产环境复用现有 **Nginx**：直接提供 `web/dist` 静态文件，并将 `/api/` 反向代理到 `127.0.0.1:8088`。不需要 Caddy，也不运行常驻 Node 服务。
 - 唯一外部 AI 服务是 OpenAI-compatible Chat Completions API；图片不会发送给 AI。
@@ -28,7 +28,7 @@ deploy/scripts/           构建与备份脚本
 
 ## 本地开发
 
-要求 Go 1.24+、Node.js 18+、npm。应用不会自动读取 `.env`；本地可以用 `set -a; source .env; set +a` 加载，systemd 会使用 `EnvironmentFile`。
+要求 Go 1.25+、Node.js 18+、npm。应用不会自动读取 `.env`；本地可以用 `set -a; source .env; set +a` 加载，systemd 会使用 `EnvironmentFile`。
 
 ```bash
 cp .env.example .env
@@ -83,19 +83,21 @@ npm run dev
 
 新增设定表：`companies`、`product_categories`、`product_statuses`、`tool_use_categories`、`recipe_groups`、`recipes`、`recipe_ingredients`、`setting_idea_links`。商品与道具共用物品身份，由 `products.item_kind` 区分，以共享附件、版本和灵感关联。
 
-主要表：`users`、`sessions`、`agent_tokens`、`invitations`、`password_reset_tokens`、`ideas`、`idea_attributes`、`products`、`product_attributes`、`idea_product_links`、`favorites`、`tags`、`idea_tags`、`attachments`、`revisions`、`ai_tasks`、`events`、`audit_logs`。迁移位于 `internal/database/migrations/`，按版本执行，不会删库重建。
+主要表：`users`、`sessions`、`mcp_oauth_clients`、`mcp_oauth_requests`、`mcp_oauth_grants`、`mcp_oauth_tokens`、`invitations`、`password_reset_tokens`、`ideas`、`idea_attributes`、`products`、`product_attributes`、`idea_product_links`、`favorites`、`tags`、`idea_tags`、`attachments`、`revisions`、`ai_tasks`、`events`、`audit_logs`。迁移位于 `internal/database/migrations/`，按版本执行，不会删库重建。
 
 ## API 概览
 
-网页业务 API 都要求登录；非 GET 请求要求当前 Session 的 `X-CSRF-Token`。AI 创意库快照使用独立的短期 Bearer Token，不接受网页 Session。错误统一为：
+网页业务 API 都要求登录；非 GET 请求要求当前 Session 的 `X-CSRF-Token`。MCP 通过 OAuth 授权访问；调用工具使用 Bearer 令牌，授权确认与连接管理使用网页 Session。业务 API 错误统一为：
 
 ```json
 {"error":{"code":"version_conflict","message":"这条灵感已被其他人修改","details":{}}}
 ```
 
 - `/api/auth/*`：登录、退出、当前用户、邀请注册、资料、密码修改和重置。
-- `/api/agent-tokens`：登录用户在“设置 → AI 只读访问”生成、查看和撤销 15 分钟只读 Token；数据库只保存令牌哈希。列表包含全部有效 Token 和最近 20 条记录，保证有效令牌始终可以撤销。
-- `/api/agent/v1/catalog`：使用 `Authorization: Bearer <token>` 读取未删除创意库的 JSON 快照，包含灵感、公司、商品、道具、配方、选项和关联关系；不包含回收站、账号标识、AI 状态或附件下载地址。已删除页面的配方及关联也会排除；配方引用的已删除物品仅保留引用 ID，不附带物品内容。
+- `/api/mcp`：标准 Streamable HTTP MCP，提供四个只读工具；OAuth Bearer 令牌不能用于网页业务 API。
+- `/.well-known/oauth-protected-resource/api/mcp`、`/.well-known/oauth-protected-resource`、`/.well-known/oauth-authorization-server`：公开的资源与授权服务器发现元数据。
+- `/api/mcp/oauth/*`：OAuth 授权、令牌交换/刷新、客户端注册和凭据撤销；仅支持授权码 + S256 PKCE 与刷新令牌。
+- `/api/mcp/connections`：登录用户查看自己的授权连接；`DELETE /api/mcp/connections/:id` 立即撤销连接及其全部访问/刷新凭据。
 - `/api/sessions*`：设备列表、撤销指定设备、退出其他设备。
 - `/api/admin/*`：账号、邀请、密码重置（仅管理员）。
 - `/api/ideas`、`/api/products`：列表、创建、详情、编辑、软删除、恢复、永久删除和历史恢复。
@@ -111,6 +113,45 @@ npm run dev
 - `/api/events`：SSE；`/api/system/status`：不泄露密钥的系统状态；`/api/system/backup`：管理员立即备份。
 
 灵感创建和附件上传都接受 `client_id` 作为幂等键，重复上传返回同一个附件。`PATCH` 和删除操作携带 `version`；旧版本返回 HTTP 409，不会静默覆盖。前端业务请求携带 `X-User-ID`，防止旧标签页或旧同步任务借用切换后的账号 Cookie 写入数据。
+
+## AI 只读 MCP 接入
+
+在“设置 → MCP 只读接入”复制服务器地址。ChatGPT 网页端添加自定义 MCP 服务器时选择 **OAuth**；本地客户端选择 **Streamable HTTP + OAuth**。两端共用 `https://你的域名/api/mcp`，首次连接会跳转本站登录，再由用户确认允许或拒绝只读访问。
+
+Codex 配置示例（将地址替换为本站地址）：
+
+```toml
+[mcp_servers.com_creative_library]
+url = "https://ideas.example.com/api/mcp"
+```
+
+也可以使用 `codex mcp add com_creative_library --url https://ideas.example.com/api/mcp` 添加，再执行 `codex mcp login com_creative_library` 完成授权。其他支持远程 MCP/OAuth 的客户端使用相同地址。
+
+### 工具与数据范围
+
+| 工具 | 参数与用途 |
+|---|---|
+| `get_library_info` | 无参数；读取记录数量、分类、状态、标签和字段含义。 |
+| `search` | `query` 必填；按中文字串、名称、别名、内容和属性搜索。 |
+| `list_records` | 无需关键词，分页浏览记录；`related_to` 可读取某条记录的全部关联。 |
+| `fetch` | `id` 必填，格式为 `kind:id`；读取完整业务内容和最多 50 条关联摘要。 |
+
+`search`/`list_records` 均支持 `kinds`（`idea/company/product/tool/recipe`）、`category`、`status`、`company_id`、`related_to`、`limit` 和 `cursor`。默认每页 20 条，最多 50 条；使用返回的 `next_cursor` 和相同查询条件继续翻页。`fetch` 返回的关联也带分页游标，可以传给带相同 `related_to` 的 `list_records`。搜索先返回摘要，再通过 `fetch` 读取所需记录，来源链接指向站内详情页。
+
+MCP 只返回当前团队共享、未删除记录的业务字段。附件仅提供名称、类型、大小和时间等元信息。个人收藏、账号标识、AI 任务状态、回收站、附件原图、系统配置和备份不在授权范围内。已删除材料和产物仅保留配方引用 ID 与数量，搜索和关联不会暴露其名称或正文；已删除配方页面下的配方也会排除。
+
+服务采用官方 Go MCP SDK v1.8.0，使用无状态 Streamable HTTP，支持 `2026-07-28` 的 `server/discover` 以及旧版 `initialize` 流程。工具有 JSON Schema 参数校验和 `readOnlyHint` 标记；实现仅注册固定业务查询，不接受 SQL、任意 URL 或写入操作。
+
+### 授权与部署
+
+- 唯一授权范围为 `creative-library:read`。OAuth 复用网站账号与明确授权页，支持 CIMD 公共客户端，兼容 DCR；仅允许授权码 + S256 PKCE，回调地址精确匹配，字面量回环 IP 回调允许动态端口。
+- 访问令牌有效 15 分钟；刷新令牌轮换，授权最长有效 30 天。轮换前的访问令牌保留原有效期；旧刷新令牌被重复使用会撤销整组授权。用户可在设置中随时撤销，每次调用也会校验账号启用状态和授权有效期。
+- 数据库仅保存凭据哈希。授权码交换和刷新在事务内完成，一次性授权请求受网页 Session 与 CSRF 保护。CIMD 获取只允许 HTTPS 公网地址，并限制响应大小、超时和重定向。
+- `APP_PUBLIC_URL` 必须设置为客户端能访问的准确 HTTPS 站点根地址。按更新后的 Nginx 示例转发 `/api/mcp` 和三个 `/.well-known/` 路径，避免授权发现请求落到 SPA 页面或隐藏文件拦截规则。
+- 连接方仍须能到达 MCP 服务；私网部署可参考 [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) 单独配置接入。ChatGPT 的可用入口取决于账号与工作区权限。
+- 升级迁移 `015_mcp_oauth.sql` 自动作废旧快照令牌；旧 `/api/agent-tokens` 和 `/api/agent/v1/catalog` 接口已移除。
+
+验证包含官方 SDK 新旧协议互操作、OAuth/PKCE/并发交换/刷新重放/撤销、分页、删除引用过滤，以及浏览器中的登录、授权、拒绝和连接管理。已通过官方 [MCP Inspector](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector) 2.13.0 的 legacy/modern 工具发现、严格 Schema 检查及实际读取调用。
 
 ## 环境变量
 

@@ -213,12 +213,8 @@ func (a *App) updateIdeaTagsTx(ctx context.Context, tx *sql.Tx, ideaID, userID s
 	return a.publish(tx, "idea.updated", "idea", ideaID)
 }
 
-func (a *App) creativeCatalog(ctx context.Context, userID string, includeDeleted bool) (map[string]any, error) {
-	where := " WHERE deleted_at IS NULL"
-	if includeDeleted {
-		where = ""
-	}
-	ideaIDs, err := queryIDs(ctx, a.db, "SELECT id FROM ideas"+where+" ORDER BY created_at")
+func (a *App) creativeCatalog(ctx context.Context, userID string) (map[string]any, error) {
+	ideaIDs, err := queryIDs(ctx, a.db, "SELECT id FROM ideas ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +226,7 @@ func (a *App) creativeCatalog(ctx context.Context, userID string, includeDeleted
 		}
 		ideas = append(ideas, item)
 	}
-	productIDs, err := queryIDs(ctx, a.db, "SELECT id FROM products"+where+" ORDER BY created_at")
+	productIDs, err := queryIDs(ctx, a.db, "SELECT id FROM products ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -243,9 +239,6 @@ func (a *App) creativeCatalog(ctx context.Context, userID string, includeDeleted
 		products = append(products, item)
 	}
 	linkQuery := "SELECT l.id,l.idea_id,l.product_id,l.status,l.created_at,l.updated_at FROM idea_product_links l"
-	if !includeDeleted {
-		linkQuery += " JOIN ideas i ON i.id=l.idea_id JOIN products p ON p.id=l.product_id WHERE i.deleted_at IS NULL AND p.deleted_at IS NULL"
-	}
 	linkRows, err := a.db.QueryContext(ctx, linkQuery+" ORDER BY l.created_at")
 	if err != nil {
 		return nil, err
@@ -264,46 +257,6 @@ func (a *App) creativeCatalog(ctx context.Context, userID string, includeDeleted
 	if err != nil {
 		return nil, err
 	}
-	if !includeDeleted {
-		companies := []Company{}
-		activeCompanies := map[string]bool{}
-		for _, item := range extra["companies"].([]Company) {
-			if item.DeletedAt == "" {
-				companies = append(companies, item)
-				activeCompanies[item.ID] = true
-			}
-		}
-		extra["companies"] = companies
-		groups := []RecipeGroup{}
-		activeGroups := map[string]bool{}
-		for _, item := range extra["recipe_groups"].([]RecipeGroup) {
-			if item.DeletedAt == "" {
-				groups = append(groups, item)
-				activeGroups[item.ID] = true
-			}
-		}
-		extra["recipe_groups"] = groups
-		recipes := []Recipe{}
-		activeRecipes := map[string]bool{}
-		for _, item := range extra["recipes"].([]Recipe) {
-			if item.DeletedAt == "" && activeGroups[item.GroupID] {
-				recipes = append(recipes, item)
-				activeRecipes[item.ID] = true
-			}
-		}
-		extra["recipes"] = recipes
-		activeIdeas := map[string]bool{}
-		for _, item := range ideas {
-			activeIdeas[item.ID] = true
-		}
-		settingLinks := []settingLink{}
-		for _, link := range extra["setting_links"].([]settingLink) {
-			if activeIdeas[link.IdeaID] && ((link.EntityType == "company" && activeCompanies[link.EntityID]) || (link.EntityType == "recipe" && activeRecipes[link.EntityID])) {
-				settingLinks = append(settingLinks, link)
-			}
-		}
-		extra["setting_links"] = settingLinks
-	}
 	tools := []Product{}
 	onlyProducts := []Product{}
 	for _, item := range products {
@@ -321,7 +274,7 @@ func (a *App) creativeCatalog(ctx context.Context, userID string, includeDeleted
 }
 
 func (a *App) exportData(w http.ResponseWriter, r *http.Request) {
-	extra, err := a.creativeCatalog(r.Context(), currentUser(r).ID, true)
+	extra, err := a.creativeCatalog(r.Context(), currentUser(r).ID)
 	if err != nil {
 		writeError(w, err)
 		return

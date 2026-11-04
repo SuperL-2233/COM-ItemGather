@@ -6,7 +6,7 @@ import { api, auth, clearAuth } from './api'
 const route = useRoute(); const router = useRouter(); const toastMessage = ref(''); const dark = ref(false); let toastTimer: ReturnType<typeof setTimeout> | undefined
 const publicPage = computed(() => !!route.meta.public)
 function showToast(event: Event) { toastMessage.value = (event as CustomEvent<string>).detail; clearTimeout(toastTimer); toastTimer = setTimeout(() => toastMessage.value = '', 3500) }
-function expired() { if (!route.meta.public) router.push('/login') }
+function expired() { if (!route.meta.public) router.push({ path: '/login', query: { redirect: route.fullPath } }) }
 function toggleTheme() { dark.value = !dark.value; document.documentElement.dataset.theme = dark.value ? 'dark' : 'light'; localStorage.setItem('com-theme', dark.value ? 'dark' : 'light') }
 async function logout() { const userID = auth.user?.id; try { await api('/auth/logout', { method: 'POST' }) } finally { await clearAuth(true, userID); router.push('/login') } }
 onMounted(() => { dark.value = localStorage.getItem('com-theme') === 'dark' || (!localStorage.getItem('com-theme') && matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = dark.value ? 'dark' : 'light'; window.addEventListener('toast', showToast); window.addEventListener('auth:expired', expired) })
