@@ -198,7 +198,7 @@ test('关联物品和设定输入即查，切换目标类型后刷新匹配结�
   const idea = await seed(page, 'ideas', { content: '自动关联检索灵感', client_id: randomUUID() })
   await expect.poll(async () => (await (await page.request.get(`/api/ideas/${idea.id}`)).json()).ai_status).toBe('succeeded')
   await page.goto(`/ideas/${idea.id}`)
-  const items = page.locator('aside .panel').filter({ has: page.getByRole('heading', { name: '关联商品与道具', exact: true }) })
+  const items = page.locator('aside .panel').filter({ has: page.getByRole('heading', { name: '关联物品', exact: true }) })
   await items.getByRole('searchbox', { name: '搜索关联物品', exact: true }).fill('自动关联检索')
   await seed(page, 'companies', { chinese_name: '触发后台刷新，保留搜索草稿' })
   await expect(items.locator('.search-result')).toHaveText('自动关联检索商品关联')

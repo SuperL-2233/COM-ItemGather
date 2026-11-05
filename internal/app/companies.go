@@ -10,10 +10,23 @@ import (
 )
 
 func requestItemKind(r *http.Request) string {
+	if strings.HasPrefix(r.URL.Path, "/api/other-items") {
+		return "other"
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/tools") {
 		return "tool"
 	}
 	return "product"
+}
+
+func resolveItemCompany(ctx context.Context, tx *sql.Tx, kind, id, name, user string) (string, string, error) {
+	if kind == "other" {
+		if strings.TrimSpace(id) != "" || strings.TrimSpace(name) != "" {
+			return "", "", fail(422, "validation", "其他物品没有所属公司")
+		}
+		return "", "", nil
+	}
+	return resolveCompany(ctx, tx, id, name, user)
 }
 func companyName(c Company) string {
 	if c.ChineseName != "" {

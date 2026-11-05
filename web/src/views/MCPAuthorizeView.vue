@@ -49,7 +49,7 @@ async function decide(allow: boolean) {
         <h2>{{ request.client_name }}</h2>
         <p>此客户端请求读取团队共享的 Call of Mommy 创意库。</p>
         <ul class="mcp-permissions">
-          <li>搜索、浏览灵感、公司、商品、道具和配方。</li>
+          <li>搜索、浏览灵感、公司、商品、道具、其他物品和配方。</li>
           <li>读取正文、设定属性、制作状态和关联关系。</li>
           <li>查看附件文件信息。</li>
         </ul>

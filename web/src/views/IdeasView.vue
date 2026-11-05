@@ -93,7 +93,7 @@ async function syncAll() {
 }
 const query = ref(previous?.query || '')
 const filters = ref<Record<string, string[]>>(previous?.filters || { scope: [] })
-const filterGroups = [{ key: 'scope', label: '浏览范围', allLabel: '全部灵感', multiple: false, options: [{ value: 'favorites', label: '收藏' }, { value: 'unlinked', label: '未关联商品／道具' }, { value: 'mine', label: '我创建的' }] }]
+const filterGroups = [{ key: 'scope', label: '浏览范围', allLabel: '全部灵感', multiple: false, options: [{ value: 'favorites', label: '收藏' }, { value: 'unlinked', label: '未关联物品' }, { value: 'mine', label: '我创建的' }] }]
 let append = false
 let preserveDepth = !!previous
 const { loading, error, run, schedule, refresh } = useLiveSearch(signal => {

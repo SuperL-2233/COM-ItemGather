@@ -7,7 +7,7 @@ import type { ChoiceOption } from '../types'
 import SearchCreateSelect from './SearchCreateSelect.vue'
 
 const value = defineModel<string>({ required: true })
-const props = defineProps<{ kind: 'categories' | 'statuses'; label: string; fallback?: string }>()
+const props = defineProps<{ kind: 'categories' | 'other-categories' | 'statuses'; label: string; fallback?: string }>()
 const options = ref<ChoiceOption[]>([])
 const loading = ref(true)
 const error = ref('')

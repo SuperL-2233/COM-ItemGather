@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-var mcpKinds = []string{"idea", "company", "product", "tool", "recipe"}
+var mcpKinds = []string{"idea", "company", "product", "tool", "other", "recipe"}
 
 // This index contains only active business records. In particular, deleted
 // company/ingredient names cannot become searchable through a live product or
@@ -104,7 +104,7 @@ func parseMCPRecordID(key string) (string, string, error) {
 }
 
 func (a *App) mcpSummaryURL(item mcpSummary) string {
-	path := map[string]string{"idea": "ideas", "company": "companies", "product": "products", "tool": "tools", "recipe": "recipes"}[item.Kind]
+	path := map[string]string{"idea": "ideas", "company": "companies", "product": "products", "tool": "tools", "other": "other-items", "recipe": "recipes"}[item.Kind]
 	id := item.LocalID
 	if item.Kind == "recipe" {
 		id = item.GroupID
@@ -123,7 +123,7 @@ func (a *App) mcpQueryRecords(ctx context.Context, q querier, input mcpListArgs)
 		page.Limit = 20
 	}
 	input.Query = strings.TrimSpace(input.Query)
-	if input.Limit < 1 || input.Limit > 50 || len(input.Kinds) > 5 || len([]rune(input.Query)) > 200 || len(input.Cursor) > 2048 ||
+	if input.Limit < 1 || input.Limit > 50 || len(input.Kinds) > len(mcpKinds) || len([]rune(input.Query)) > 200 || len(input.Cursor) > 2048 ||
 		len([]rune(input.Category)) > 100 || len(input.Status) > 100 || len(input.CompanyID) > 100 {
 		return page, fail(422, "validation", "查询条件无效，每页最多 50 条")
 	}
@@ -266,7 +266,7 @@ func (a *App) mcpFetch(ctx context.Context, key string) (map[string]any, error) 
 		fields = map[string]any{"original_content": item.OriginalContent, "content": item.Content, "display_title": item.DisplayTitle, "summary": item.Summary,
 			"notes": item.Notes, "idea_types": item.IdeaTypes, "product_directions": item.ProductDirections,
 			"attachments": mcpAttachments(item.Attachments), "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "version": item.Version}
-	case "product", "tool":
+	case "product", "tool", "other":
 		item, e := loadProduct(ctx, tx, id, false, false)
 		if e != nil {
 			return nil, e
@@ -348,6 +348,10 @@ func (a *App) mcpLibraryInfo(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	otherCategories, err := loadProductOptions(ctx, a.db, "other-categories")
+	if err != nil {
+		return nil, err
+	}
 	statuses, err := loadProductOptions(ctx, a.db, "statuses")
 	if err != nil {
 		return nil, err
@@ -356,9 +360,9 @@ func (a *App) mcpLibraryInfo(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"name": "Call of Mommy 创意库", "counts": counts, "kinds": mcpKinds, "categories": categories, "statuses": statuses, "use_categories": useCategories,
+	return map[string]any{"name": "Call of Mommy 创意库", "counts": counts, "kinds": mcpKinds, "categories": categories, "other_categories": otherCategories, "statuses": statuses, "use_categories": useCategories,
 		"scope": mcpReadScope, "default_page_size": 20, "max_page_size": 50,
-		"fields": map[string]string{"id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "商品与道具的动态设定属性；certainty 为 asserted/tentative/undecided", "idea_types": "灵感主要讨论的方面", "product_directions": "灵感中有明确依据的商品品类",
+		"fields": map[string]string{"id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "商品、道具与其他物品的动态设定属性；certainty 为 asserted/tentative/undecided", "category": "商品与道具使用 categories；其他物品使用独立的 other_categories，且没有所属公司", "idea_types": "灵感主要讨论的方面", "product_directions": "灵感中有明确依据的商品品类",
 			"related": "关联摘要；list_records 的 related_to 可分页读取所有关联", "verification": "配方验证状态 untested/verified/invalid", "attachments": "仅文件名、类型、大小、时间等元信息",
 			"relations":          "candidate/adopted/rejected 为灵感关联状态；company_item/recipe_output/recipe_ingredient 为公司物品/配方产物/配方材料",
 			"deleted_references": "已删除材料和产物仅保留引用 ID 与数量；详情不可读取"}}, nil

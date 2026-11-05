@@ -58,41 +58,53 @@ func optionReferences(ctx context.Context, q querier, query, name string) ([]opt
 	}
 	return items, rows.Err()
 }
-func loadCategoryUsage(ctx context.Context, q querier, name string) (categoryUsage, error) {
+func loadCategoryUsage(ctx context.Context, q querier, name, kind string) (categoryUsage, error) {
 	var usage categoryUsage
-	err := q.QueryRowContext(ctx, "SELECT name,version FROM product_categories WHERE name=? COLLATE NOCASE AND deleted_at IS NULL", name).Scan(&usage.Name, &usage.Version)
+	err := q.QueryRowContext(ctx, "SELECT name,version FROM "+categoryTable(kind)+" WHERE name=? COLLATE NOCASE AND deleted_at IS NULL", name).Scan(&usage.Name, &usage.Version)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return usage, fail(404, "category_deleted", "该分类不存在或已被删除")
 		}
 		return usage, err
 	}
-	usage.Items, err = optionReferences(ctx, q, "SELECT id,version FROM products WHERE category=? COLLATE NOCASE ORDER BY id", usage.Name)
+	itemScope := "item_kind IN ('product','tool')"
+	if kind == "other-categories" {
+		itemScope = "item_kind='other'"
+	}
+	usage.Items, err = optionReferences(ctx, q, "SELECT id,version FROM products WHERE "+itemScope+" AND category=? COLLATE NOCASE ORDER BY id", usage.Name)
 	if err != nil {
 		return usage, err
 	}
-	usage.Recipes, err = optionReferences(ctx, q, "SELECT r.id,r.version FROM recipes r WHERE EXISTS(SELECT 1 FROM recipe_ingredients i WHERE i.recipe_id=r.id AND i.category=? COLLATE NOCASE) ORDER BY r.id", usage.Name)
-	if err != nil {
-		return usage, err
+	usage.Recipes = []optionReference{}
+	if kind == "categories" {
+		usage.Recipes, err = optionReferences(ctx, q, "SELECT r.id,r.version FROM recipes r WHERE EXISTS(SELECT 1 FROM recipe_ingredients i WHERE i.recipe_id=r.id AND i.category=? COLLATE NOCASE) ORDER BY r.id", usage.Name)
+		if err != nil {
+			return usage, err
+		}
 	}
 	usage.ItemCount = len(usage.Items)
 	usage.RecipeCount = len(usage.Recipes)
 	digest := sha256.Sum256([]byte(encodeJSON(struct {
-		Name           string
+		Name, Kind     string
 		Version        int
 		Items, Recipes []optionReference
-	}{usage.Name, usage.Version, usage.Items, usage.Recipes})))
+	}{usage.Name, kind, usage.Version, usage.Items, usage.Recipes})))
 	usage.Token = hex.EncodeToString(digest[:])
 	return usage, nil
 }
 func (a *App) productCategoryUsage(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	if kind != "categories" && kind != "other-categories" {
+		writeError(w, fail(404, "not_found", "选项类型不存在"))
+		return
+	}
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer tx.Rollback()
-	usage, err := loadCategoryUsage(r.Context(), tx, r.URL.Query().Get("name"))
+	usage, err := loadCategoryUsage(r.Context(), tx, r.URL.Query().Get("name"), kind)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -100,6 +112,12 @@ func (a *App) productCategoryUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, usage)
 }
 func (a *App) deleteProductCategory(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue("kind")
+	if kind != "categories" && kind != "other-categories" {
+		writeError(w, fail(404, "not_found", "选项类型不存在"))
+		return
+	}
+	table := categoryTable(kind)
 	var body struct {
 		Name        string `json:"name"`
 		Replacement string `json:"replacement"`
@@ -121,7 +139,7 @@ func (a *App) deleteProductCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	usage, err := loadCategoryUsage(r.Context(), tx, body.Name)
+	usage, err := loadCategoryUsage(r.Context(), tx, body.Name, kind)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -132,7 +150,7 @@ func (a *App) deleteProductCategory(w http.ResponseWriter, r *http.Request) {
 	}
 	replacement := ""
 	if body.Replacement != "" {
-		err = tx.QueryRowContext(r.Context(), "SELECT name FROM product_categories WHERE name=? COLLATE NOCASE AND deleted_at IS NULL", body.Replacement).Scan(&replacement)
+		err = tx.QueryRowContext(r.Context(), "SELECT name FROM "+table+" WHERE name=? COLLATE NOCASE AND deleted_at IS NULL", body.Replacement).Scan(&replacement)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				err = fail(422, "validation", "替代分类不存在或已被删除，请重新选择")
@@ -217,9 +235,9 @@ func (a *App) deleteProductCategory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	_, err = tx.ExecContext(r.Context(), "UPDATE product_categories SET deleted_at=?,version=version+1 WHERE name=? COLLATE NOCASE", stamp, usage.Name)
+	_, err = tx.ExecContext(r.Context(), "UPDATE "+table+" SET deleted_at=?,version=version+1 WHERE name=? COLLATE NOCASE", stamp, usage.Name)
 	if err == nil {
-		err = a.publish(tx, "product_option.deleted", "category", usage.Name)
+		err = a.publish(tx, "product_option.deleted", kind, usage.Name)
 	}
 	if err == nil {
 		err = tx.Commit()

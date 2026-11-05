@@ -34,10 +34,10 @@ func optionChanged(state optionState) *APIError {
 
 func (a *App) reorderProductOptions(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
-	table, key := "product_categories", "name"
+	table, key := categoryTable(kind), "name"
 	if kind == "statuses" {
 		table, key = "product_statuses", "id"
-	} else if kind != "categories" {
+	} else if kind != "categories" && kind != "other-categories" {
 		writeError(w, fail(404, "not_found", "选项类型不存在"))
 		return
 	}

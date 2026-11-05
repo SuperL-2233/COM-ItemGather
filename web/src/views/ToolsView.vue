@@ -63,7 +63,7 @@ useEvents(refresh)
 </script>
 <template>
   <section>
-    <div class="page-heading"><div><h1>道具库</h1><p>记录道具的获得途径、触发方式与使用效果。</p></div><button class="primary" @click="creating = true">创建道具</button></div>
+    <div class="page-heading"><div><h2 class="collection-title">道具库</h2><p>记录道具的获得途径、触发方式与使用效果。</p></div><button class="primary" @click="creating = true">创建道具</button></div>
     <p v-if="route.query.company_id" class="muted">正在查看所选公司旗下道具 · <RouterLink to="/tools">查看全部公司</RouterLink></p>
     <form class="toolbar" @submit.prevent="load()"><input v-model="query" type="search" aria-label="搜索道具" placeholder="搜索名称、效果、公司或获取来源" /><FilterPopover id="tool-filter-popover" v-model="filters" label="道具" :groups="groups" /></form>
     <div class="catalog-view-controls">
@@ -88,6 +88,7 @@ useEvents(refresh)
 </template>
 
 <style scoped>
+.collection-title{margin:0;font-size:1.5rem}
 .catalog-view-controls{display:flex;justify-content:flex-end;margin:1rem 0 .75rem}
 .product-view-switch{display:flex;gap:.2rem;padding:.2rem;border:1px solid var(--border);border-radius:7px;background:var(--surface-soft);flex:none}
 .product-view-switch button{display:flex;align-items:center;gap:.35rem;padding:.35rem .6rem;border-radius:4px;background:transparent;color:var(--muted);font-size:.78rem}

@@ -11,8 +11,9 @@ import CategoryDeleteDialog from '../components/CategoryDeleteDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
-const kind = computed(() => route.query.kind === 'categories' ? 'categories' : 'statuses')
-const noun = computed(() => kind.value === 'statuses' ? '制作状态' : '商品分类')
+const optionTabs = [{ value: 'statuses', label: '制作状态' }, { value: 'categories', label: '商品分类' }, { value: 'other-categories', label: '其他物品分类' }]
+const kind = computed(() => optionTabs.some(tab => tab.value === route.query.kind) ? route.query.kind as string : 'statuses')
+const noun = computed(() => optionTabs.find(tab => tab.value === kind.value)!.label)
 const state = ref<OptionState>({ items: [], revision: '' })
 const loading = ref(true)
 const busy = ref(false)
@@ -113,7 +114,9 @@ async function tabKeydown(event: KeyboardEvent) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
   if (busy.value) return
-  const value = event.key === 'Home' ? 'statuses' : event.key === 'End' ? 'categories' : kind.value === 'statuses' ? 'categories' : 'statuses'
+  const index = optionTabs.findIndex(tab => tab.value === kind.value)
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? optionTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + optionTabs.length) % optionTabs.length
+  const value = optionTabs[next].value
   await router.replace({ query: { kind: value } })
   await nextTick()
   document.getElementById(`option-tab-${value}`)?.focus()
@@ -125,20 +128,20 @@ useEvents(() => { if (!busy.value && !dragged.value) void load() })
 
 <template>
   <section class="option-settings">
-    <div class="page-heading"><div><RouterLink to="/settings">← 返回设置</RouterLink><h1>选项管理</h1><p>管理团队共用的制作状态和商品分类。</p></div></div>
+    <div class="page-heading"><div><RouterLink to="/settings">← 返回设置</RouterLink><h1>选项管理</h1><p>管理团队共用的制作状态、商品分类和独立的其他物品分类。</p></div></div>
     <div class="option-tabs" role="tablist" aria-label="选项类型">
-      <button v-for="tab in [{ value: 'statuses', label: '制作状态' }, { value: 'categories', label: '商品分类' }]" :id="`option-tab-${tab.value}`" :key="tab.value" type="button" role="tab" :aria-selected="kind === tab.value" :tabindex="kind === tab.value ? 0 : -1" aria-controls="option-settings-panel" :disabled="busy" @click="changeKind(tab.value)" @keydown="tabKeydown">{{ tab.label }}</button>
+      <button v-for="tab in optionTabs" :id="`option-tab-${tab.value}`" :key="tab.value" type="button" role="tab" :aria-selected="kind === tab.value" :tabindex="kind === tab.value ? 0 : -1" aria-controls="option-settings-panel" :disabled="busy" @click="changeKind(tab.value)" @keydown="tabKeydown">{{ tab.label }}</button>
     </div>
     <section id="option-settings-panel" class="panel options-panel" role="tabpanel" :aria-labelledby="`option-tab-${kind}`">
       <header class="options-heading"><div><h2>{{ noun }}</h2><p>拖动调整顺序，也可使用上下移动按钮。更改会同步给所有成员。</p></div><span class="option-total">{{ state.items.length }} 项</span></header>
       <form class="option-add-form" @submit.prevent="add">
-        <div class="option-add-row"><label :for="`new-${kind}`" class="option-name-input"><span>新{{ noun }}</span><input :id="`new-${kind}`" v-model="name" :maxlength="kind === 'statuses' ? 80 : 100" :placeholder="kind === 'statuses' ? '例如：等待美术确认' : '例如：饮料、零食'" :disabled="busy" /></label><button type="submit" class="primary" :disabled="busy || loading || !name.trim()">添加{{ noun }}</button></div>
+        <div class="option-add-row"><label :for="`new-${kind}`" class="option-name-input"><span>新{{ noun }}</span><input :id="`new-${kind}`" v-model="name" :maxlength="kind === 'statuses' ? 80 : 100" :placeholder="kind === 'statuses' ? '例如：等待美术确认' : kind === 'other-categories' ? '例如：材料、任务物品' : '例如：饮料、零食'" :disabled="busy" /></label><button type="submit" class="primary" :disabled="busy || loading || !name.trim()">添加{{ noun }}</button></div>
         <div v-if="kind === 'statuses'" class="new-status-colors"><span class="muted">颜色</span><div class="color-presets" role="group" aria-label="新制作状态颜色预设"><button v-for="color in palette" :key="color.color" type="button" class="color-preset" :style="{ '--swatch': color.color }" :aria-label="color.label" :aria-pressed="newColor === color.color" :disabled="busy" @click="newColor = color.color"><span v-if="newColor === color.color" aria-hidden="true">✓</span></button></div><label class="custom-color"><span>自定义</span><input v-model="newColor" type="color" aria-label="新制作状态颜色" :disabled="busy" /></label><StatusBadge class="new-status-preview" :label="name || '状态预览'" :color="newColor" /></div>
       </form>
       <p v-if="error" class="error-text option-error" role="alert">{{ error }}</p>
       <p v-if="loading" class="muted options-empty" role="status">读取选项中…</p>
       <ol v-else-if="state.items.length" class="option-list" :aria-label="`${noun}顺序`" :aria-busy="busy">
-        <li v-for="(option, index) in state.items" :key="option.value" class="option-row" :class="{ 'category-row': kind === 'categories', 'drop-target': dragged && dropTarget === option.value && dragged !== option.value, dragging: dragged === option.value }" :data-value="option.value" @dragover.prevent="dropTarget = option.value" @drop.prevent="drop(option.value)">
+        <li v-for="(option, index) in state.items" :key="option.value" class="option-row" :class="{ 'category-row': kind !== 'statuses', 'drop-target': dragged && dropTarget === option.value && dragged !== option.value, dragging: dragged === option.value }" :data-value="option.value" @dragover.prevent="dropTarget = option.value" @drop.prevent="drop(option.value)">
           <div class="option-order"><button :id="`option-handle-${encodeURIComponent(option.value)}`" type="button" class="drag-handle" draggable="true" :aria-label="`拖动${noun}“${option.label}”排序`" :disabled="busy" title="拖动排序，也可使用右侧上下移动按钮" @dragstart="dragStart($event, option.value)" @dragend="dragEnd" @keydown.up.prevent="move(option.value, -1)" @keydown.down.prevent="move(option.value, 1)"><svg viewBox="0 0 16 20" aria-hidden="true"><circle v-for="point in [[5,5],[11,5],[5,10],[11,10],[5,15],[11,15]]" :key="point.join(',')" :cx="point[0]" :cy="point[1]" r="1.2" /></svg></button><span>{{ index + 1 }}</span></div>
           <div class="option-name"><StatusBadge v-if="kind === 'statuses'" :label="option.label" :color="option.color" /><strong v-else>{{ option.label }}</strong></div>
           <label v-if="kind === 'statuses'" class="option-color"><span>颜色</span><input type="color" :value="option.color" :aria-label="`${option.label}的颜色`" :disabled="busy" @change="colorChanged(option, $event)" /></label>
@@ -148,7 +151,7 @@ useEvents(() => { if (!busy.value && !dragged.value) void load() })
       <p v-else class="muted options-empty">还没有{{ noun }}，可以在上方添加。</p>
     </section>
     <StatusDeleteDialog v-if="deleting && kind === 'statuses'" :option="deleting" :options="state.items" :create="createForDialog" @deleted="deleted" @cancel="cancelDelete" />
-    <CategoryDeleteDialog v-else-if="deleting" :name="deleting.value" :options="state.items" :create="createForDialog" @deleted="deleted" @cancel="cancelDelete" />
+    <CategoryDeleteDialog v-else-if="deleting" :kind="kind === 'other-categories' ? 'other-categories' : 'categories'" :name="deleting.value" :options="state.items" :create="createForDialog" @deleted="deleted" @cancel="cancelDelete" />
   </section>
 </template>
 

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import StatusBadge from './StatusBadge.vue'
 import type { RecipeGroup } from '../types'
-import { developmentStatusLabel, productTitle } from '../utils'
+import { developmentStatusLabel, itemLabel, productTitle } from '../utils'
 
 const props = defineProps<{ group: RecipeGroup; layout: 'list' | 'grid' }>()
 const cover = computed(() => props.group.output.attachments[0])
@@ -21,7 +21,7 @@ const pending = computed(() => !props.group.recipes.length || props.group.recipe
         <p v-if="group.output.chinese_name && group.output.english_name" class="recipe-english">{{ group.output.english_name }}</p>
       </div>
     </div>
-    <div class="recipe-type"><span class="recipe-field-label">类型</span><span class="tag">{{ group.output.item_kind === 'tool' ? '道具' : '商品' }}</span></div>
+    <div class="recipe-type"><span class="recipe-field-label">类型</span><span class="tag">{{ itemLabel(group.output.item_kind) }}</span></div>
     <div class="recipe-count"><span class="recipe-field-label">配方数量</span><span>{{ group.recipes.length }} 套配方</span><small v-if="pending" class="muted">待补充</small></div>
     <div class="recipe-status">
       <span class="recipe-field-label">制作状态</span>

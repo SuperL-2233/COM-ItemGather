@@ -45,9 +45,9 @@ onMounted(() => { void load(); cancelButton.value?.focus() })
         <h2 :id="`${id}-title`">删除制作状态“{{ option.label }}”</h2>
         <p v-if="loading" class="muted">正在检查制作状态使用情况…</p>
         <template v-else-if="usage">
-          <p v-if="hasReferences">此状态用于 {{ usage.item_count }} 件商品／道具、{{ usage.recipe_count }} 套配方（包含回收站中的内容）。</p>
+          <p v-if="hasReferences">此状态用于 {{ usage.item_count }} 件物品、{{ usage.recipe_count }} 套配方（包含回收站中的内容）。</p>
           <p v-else>此状态当前未被使用，确认后会从制作状态选项中移除。</p>
-          <p v-if="hasReferences" class="muted">请选择替代状态。商品、道具和配方本身都会保留。</p>
+          <p v-if="hasReferences" class="muted">请选择替代状态。物品和配方本身都会保留。</p>
           <p v-if="!choices.length" class="error-text">至少保留一个制作状态，请先新建其他状态。</p>
           <div v-if="hasReferences || !choices.length" class="field">
             <SearchCreateSelect v-model="replacement" label="替代状态" :options="choices" :create="create" create-label="＋ 新建制作状态" new-label="新制作状态" empty-label="请选择替代状态" :allow-empty="false" :max-length="80" />

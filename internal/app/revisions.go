@@ -95,7 +95,7 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	}
 	item.ChineseName = clean(data.ChineseName, 160)
 	item.EnglishName = clean(data.EnglishName, 160)
-	item.CompanyID, item.Company, err = resolveCompany(r.Context(), tx, data.CompanyID, data.Company, user.ID)
+	item.CompanyID, item.Company, err = resolveItemCompany(r.Context(), tx, item.ItemKind, data.CompanyID, data.Company, user.ID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -110,7 +110,7 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	}
 	item.UseCategory = clean(data.UseCategory, 80)
 	item.ToolSettings = data.ToolSettings
-	item.Category, err = ensureProductCategory(r.Context(), tx, data.Category)
+	item.Category, err = ensureItemCategory(r.Context(), tx, data.Category, item.ItemKind)
 	if err != nil {
 		writeError(w, err)
 		return

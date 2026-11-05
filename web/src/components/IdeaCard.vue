@@ -20,7 +20,7 @@ async function retry() { busy.value = true; error.value = ''; try { await api(`/
         <span v-for="type in idea.idea_types" :key="`t-${type}`" class="tag">{{ type }}</span>
         <span v-for="direction in idea.product_directions" :key="`d-${direction}`" class="tag direction">{{ direction }}</span>
       </div>
-      <div class="card-meta"><span>{{ idea.author_nickname }}</span><time :datetime="idea.created_at">{{ shortDate(idea.created_at) }}</time><span v-if="idea.product_count">{{ idea.product_count }} 件关联商品／道具</span><template v-if="idea.ai_status === 'failed'"><span class="error-text">{{ aiLabels.failed }}</span><button class="button-link error-text" :disabled="busy" @click="retry">重新整理</button></template><span v-else-if="['pending','running'].includes(idea.ai_status)" class="muted">{{ aiLabels[idea.ai_status] }}…</span></div>
+      <div class="card-meta"><span>{{ idea.author_nickname }}</span><time :datetime="idea.created_at">{{ shortDate(idea.created_at) }}</time><span v-if="idea.product_count">{{ idea.product_count }} 件关联物品</span><template v-if="idea.ai_status === 'failed'"><span class="error-text">{{ aiLabels.failed }}</span><button class="button-link error-text" :disabled="busy" @click="retry">重新整理</button></template><span v-else-if="['pending','running'].includes(idea.ai_status)" class="muted">{{ aiLabels[idea.ai_status] }}…</span></div>
       <p v-if="error" class="error-text">{{ error }}</p>
     </div>
     <button class="favorite-button" :class="{ active: idea.favorite }" :aria-label="idea.favorite ? '取消收藏' : '收藏'" :disabled="busy" @click="favorite">{{ idea.favorite ? '★' : '☆' }}</button>

@@ -2,17 +2,17 @@
 import { computed } from 'vue'
 import StatusBadge from './StatusBadge.vue'
 import type { Product } from '../types'
-import { developmentStatusLabel, itemPath, productTitle } from '../utils'
+import { developmentStatusLabel, itemLabel, itemPath, productTitle } from '../utils'
 
 const props = defineProps<{ product: Product; layout: 'list' | 'grid'; selectable?: boolean; selected?: boolean; selectionDisabled?: boolean }>()
 const emit = defineEmits<{ toggle: [] }>()
 const cover = computed(() => props.product.attachments[0])
-const categoryLabel = computed(() => props.product.item_kind === 'tool' ? '使用类别' : '商品分类')
+const categoryLabel = computed(() => props.product.item_kind === 'tool' ? '使用类别' : `${itemLabel(props.product.item_kind)}分类`)
 const category = computed(() => props.product.item_kind === 'tool' ? props.product.use_category : props.product.category)
 </script>
 
 <template>
-  <article class="product-card catalog-item" :class="[`is-${layout}`, { 'is-selectable': selectable, 'is-selected': selected, 'has-cover': !!cover }]" @click="selectable && !selectionDisabled && emit('toggle')">
+  <article class="product-card catalog-item" :class="[`is-${layout}`, { 'is-selectable': selectable, 'is-selected': selected, 'has-cover': !!cover, 'is-other': product.item_kind === 'other' }]" @click="selectable && !selectionDisabled && emit('toggle')">
     <div class="catalog-identity">
       <label v-if="selectable" class="catalog-select" @click.stop><input type="checkbox" :checked="selected" :disabled="selectionDisabled" :aria-label="`选择商品：${productTitle(product)}`" @change="emit('toggle')" /></label>
       <div v-if="cover || layout === 'list'" class="catalog-visual" aria-hidden="true">
@@ -24,7 +24,7 @@ const category = computed(() => props.product.item_kind === 'tool' ? props.produ
         <p v-if="product.chinese_name && product.english_name" class="catalog-english">{{ product.english_name }}</p>
       </div>
     </div>
-    <div class="catalog-company">
+    <div v-if="product.item_kind !== 'other'" class="catalog-company">
       <span class="catalog-field-label">所属公司</span>
       <RouterLink v-if="!selectable && product.company_id && !product.company_deleted" :to="`/companies/${product.company_id}`">{{ product.company }}</RouterLink>
       <span v-else :class="{ 'catalog-unset': !product.company }">{{ product.company || '未设置公司' }}</span>
@@ -78,7 +78,10 @@ const category = computed(() => props.product.item_kind === 'tool' ? props.produ
 .is-list.is-selectable .catalog-visual{display:none}
 .is-grid .catalog-select{position:absolute;top:.7rem;left:.7rem;z-index:1;width:1.85rem;height:1.85rem;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:5px}
 .is-grid.is-selectable:not(.has-cover) .catalog-names{padding-left:2rem}
+.catalog-item.is-other{grid-template-areas:"identity category status"}
+.catalog-item.is-other.is-grid{grid-template-areas:"identity identity" "category status"}
 @media(max-width:600px){
+  .catalog-item.is-other.is-list{grid-template-areas:"identity identity" "category status"}
   .catalog-item.is-list{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"identity identity" "company status" "category status";gap:.4rem .6rem;padding:.9rem}
   .is-list .catalog-identity{gap:.65rem;margin-bottom:.15rem}
   .is-list .catalog-company,.is-list .catalog-category{margin-left:calc(44px + .65rem)}

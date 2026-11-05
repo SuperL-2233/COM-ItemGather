@@ -44,7 +44,7 @@ onMounted(async () => {
 <template>
   <section class="panel mcp-settings" :aria-busy="loading">
     <h2>MCP 只读接入</h2>
-    <p class="muted">让 AI 按需搜索和阅读团队创意库。连接时使用本站账号登录，授权后即可读取灵感、公司、商品、道具、配方及关联关系。</p>
+    <p class="muted">让 AI 按需搜索和阅读团队创意库。连接时使用本站账号登录，授权后即可读取灵感、公司、商品、道具、其他物品、配方及关联关系。</p>
     <p v-if="error" class="error-text" role="alert">{{ error }}</p>
     <p v-if="loading" class="muted">正在加载接入信息…</p>
     <template v-else-if="serverURL">

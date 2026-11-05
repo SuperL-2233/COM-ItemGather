@@ -62,10 +62,10 @@ func (a *App) registerMCPRoutes() {
 		return a.mcpLibraryInfo(ctx)
 	})
 	properties := map[string]any{
-		"kinds":      map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": mcpKinds}, "maxItems": 5, "description": "Optional record types; omit for all."},
+		"kinds":      map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": mcpKinds}, "maxItems": len(mcpKinds), "description": "Optional record types; omit for all."},
 		"limit":      map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "Page size, default 20, maximum 50."},
 		"cursor":     map[string]any{"type": "string", "maxLength": 2048, "description": "next_cursor from the preceding page with the same query and filters."},
-		"category":   map[string]any{"type": "string", "maxLength": 100, "description": "Exact product category from get_library_info."},
+		"category":   map[string]any{"type": "string", "maxLength": 100, "description": "Exact category from get_library_info: categories for products/tools, other_categories for other items. Use kinds to select the category namespace."},
 		"status":     map[string]any{"type": "string", "maxLength": 100, "description": "Exact development status ID from get_library_info."},
 		"company_id": map[string]any{"type": "string", "maxLength": 100, "description": "Company record's local ID (without company: prefix)."},
 		"related_to": map[string]any{"type": "string", "maxLength": 200, "description": "Optional kind:id; list related inspirations, company items, recipe outputs/materials."},
@@ -92,7 +92,7 @@ func (a *App) registerMCPRoutes() {
 		}
 		return a.mcpListRecords(ctx, args)
 	})
-	add("fetch", "Use after search/list_records to read a complete inspiration, company, product, tool or recipe by kind:id. Includes business fields, attachment metadata and up to 50 related summaries. Use list_records with related_to for remaining relations. Deleted references expose only an ID, never their content.", map[string]any{"id": map[string]any{"type": "string", "maxLength": 200, "description": "The exact kind:id returned by search or list_records."}}, []string{"id"}, func(ctx context.Context, raw json.RawMessage) (any, error) {
+	add("fetch", "Use after search/list_records to read a complete inspiration, company, product, tool, other item or recipe by kind:id. Includes business fields, attachment metadata and up to 50 related summaries. Use list_records with related_to for remaining relations. Deleted references expose only an ID, never their content.", map[string]any{"id": map[string]any{"type": "string", "maxLength": 200, "description": "The exact kind:id returned by search or list_records."}}, []string{"id"}, func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var args struct {
 			ID string `json:"id"`
 		}

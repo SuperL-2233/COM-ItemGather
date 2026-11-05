@@ -24,6 +24,22 @@ type productFields struct {
 	Attributes        []Attribute  `json:"attributes"`
 }
 
+func (a *App) itemHandler(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var kind string
+		err := a.db.QueryRowContext(r.Context(), "SELECT item_kind FROM products WHERE id=?", r.PathValue("id")).Scan(&kind)
+		if err != nil {
+			writeError(w, ensureNoRows(err))
+			return
+		}
+		if kind != requestItemKind(r) {
+			writeError(w, fail(404, "not_found", "物品不存在"))
+			return
+		}
+		next(w, r)
+	}
+}
+
 const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,COALESCE(p.status_option_id,p.development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),p.development_status),COALESCE((SELECT color FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),'#7c3aed'),p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL) FROM products p `
 
 func loadProduct(ctx context.Context, q querier, id string, deleted, related bool) (Product, error) {
@@ -112,7 +128,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Description) > 100000 {
-		writeError(w, fail(413, "too_large", "商品描述过长"))
+		writeError(w, fail(413, "too_large", "物品描述过长"))
 		return
 	}
 	user := currentUser(r)
@@ -130,12 +146,12 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.DevelopmentStatus = statusID
-	body.Category, err = ensureProductCategory(r.Context(), tx, body.Category)
+	body.Category, err = ensureItemCategory(r.Context(), tx, body.Category, requestItemKind(r))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	companyID, companyName, err := resolveCompany(r.Context(), tx, body.CompanyID, body.Company, user.ID)
+	companyID, companyName, err := resolveItemCompany(r.Context(), tx, requestItemKind(r), body.CompanyID, body.Company, user.ID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -190,17 +206,19 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) listProductFilters(w http.ResponseWriter, r *http.Request) {
+	kind := requestItemKind(r)
+	table := categoryTable(itemCategoryKind(kind))
 	result := map[string]any{"companies": []string{}, "categories": []string{}, "attributes": []string{}}
 	queries := []struct {
 		key   string
 		query string
 	}{
-		{"companies", "SELECT DISTINCT company FROM products WHERE item_kind='product' AND deleted_at IS NULL AND company<>'' ORDER BY company COLLATE NOCASE"},
-		{"categories", "SELECT c.name FROM product_categories c WHERE c.deleted_at IS NULL AND EXISTS(SELECT 1 FROM products p WHERE p.item_kind='product' AND p.deleted_at IS NULL AND p.category=c.name COLLATE NOCASE) ORDER BY c.position,c.name COLLATE NOCASE"},
-		{"attributes", "SELECT DISTINCT pa.key FROM product_attributes pa JOIN products p ON p.id=pa.product_id WHERE p.item_kind='product' AND p.deleted_at IS NULL AND pa.key<>'' ORDER BY pa.key COLLATE NOCASE"},
+		{"companies", "SELECT DISTINCT company FROM products WHERE item_kind=? AND deleted_at IS NULL AND company<>'' ORDER BY company COLLATE NOCASE"},
+		{"categories", "SELECT c.name FROM " + table + " c WHERE c.deleted_at IS NULL AND EXISTS(SELECT 1 FROM products p WHERE p.item_kind=? AND p.deleted_at IS NULL AND p.category=c.name COLLATE NOCASE) ORDER BY c.position,c.name COLLATE NOCASE"},
+		{"attributes", "SELECT DISTINCT pa.key FROM product_attributes pa JOIN products p ON p.id=pa.product_id WHERE p.item_kind=? AND p.deleted_at IS NULL AND pa.key<>'' ORDER BY pa.key COLLATE NOCASE"},
 	}
 	for _, item := range queries {
-		rows, err := a.db.QueryContext(r.Context(), item.query)
+		rows, err := a.db.QueryContext(r.Context(), item.query, kind)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -263,7 +281,7 @@ func productOrder(value string) (string, error) {
 	case "name_desc":
 		return "(p.chinese_name='') ASC,(p.chinese_name='' AND p.english_name='') ASC,p.chinese_name COLLATE ZH_PINYIN DESC,p.english_name COLLATE ZH_PINYIN DESC,p.id DESC", nil
 	default:
-		return "", fail(400, "invalid_sort", "请选择有效的商品排序方式")
+		return "", fail(400, "invalid_sort", "请选择有效的物品排序方式")
 	}
 }
 
@@ -414,7 +432,7 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if item.Version != body.Version {
-		writeError(w, &APIError{Status: 409, Code: "version_conflict", Message: "这个商品已被其他人修改", Details: map[string]any{"current": item, "submitted": body}})
+		writeError(w, &APIError{Status: 409, Code: "version_conflict", Message: "这个物品已被其他人修改", Details: map[string]any{"current": item, "submitted": body}})
 		return
 	}
 	before := productSnapshot(item)
@@ -431,7 +449,7 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 		} else if body.Company != nil {
 			companyName = *body.Company
 		}
-		item.CompanyID, item.Company, err = resolveCompany(r.Context(), tx, companyID, companyName, user.ID)
+		item.CompanyID, item.Company, err = resolveItemCompany(r.Context(), tx, item.ItemKind, companyID, companyName, user.ID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -453,7 +471,7 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Category != nil {
-		item.Category, err = ensureProductCategory(r.Context(), tx, *body.Category)
+		item.Category, err = ensureItemCategory(r.Context(), tx, *body.Category, item.ItemKind)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -461,7 +479,7 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Description != nil {
 		if len(*body.Description) > 100000 {
-			writeError(w, fail(413, "too_large", "商品描述过长"))
+			writeError(w, fail(413, "too_large", "物品描述过长"))
 			return
 		}
 		item.Description = *body.Description
@@ -492,7 +510,7 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	count, _ := result.RowsAffected()
 	if count != 1 {
-		writeError(w, fail(409, "version_conflict", "商品版本已变化"))
+		writeError(w, fail(409, "version_conflict", "物品版本已变化"))
 		return
 	}
 	if body.Attributes != nil {
@@ -605,7 +623,7 @@ func (a *App) permanentDeleteProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if item.DeletedAt == "" {
-		writeError(w, fail(400, "not_deleted", "请先将商品移入回收站"))
+		writeError(w, fail(400, "not_deleted", "请先将物品移入回收站"))
 		return
 	}
 	if item.Version != body.Version {

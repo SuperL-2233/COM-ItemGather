@@ -9,7 +9,9 @@ export const listToLines = (value: string[]) => value.join('\n')
 export function toast(message: string) { window.dispatchEvent(new CustomEvent('toast', { detail: message })) }
 export const fileSize = (size: number) => size > 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MiB` : `${Math.ceil(size / 1024)} KiB`
 
-export const itemPath = (item: { id: string; item_kind?: string }) => `/${item.item_kind === 'tool' ? 'tools' : 'products'}/${item.id}`
+export const itemCollection = (kind?: string) => kind === 'other' ? 'other-items' : kind === 'tool' ? 'tools' : 'products'
+export const itemLabel = (kind?: string) => kind === 'other' ? '其他物品' : kind === 'tool' ? '道具' : '商品'
+export const itemPath = (item: { id: string; item_kind?: string }) => `/${itemCollection(item.item_kind)}/${item.id}`
 export const companyTitle = (company: { chinese_name: string; english_name: string }) => company.chinese_name || company.english_name || '未命名公司'
 export const emptyToolSettings = () => ({ trigger: '', effect: '', sources: [], cooldown: '', charges: '', consumption: '', duration: '', model_status: '', function_status: '' })
 export const verificationLabels: Record<string, string> = { untested: '待验证', verified: '已验证', invalid: '不可行' }

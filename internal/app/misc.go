@@ -54,10 +54,13 @@ func (a *App) listTrash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tools := []Product{}
+	otherItems := []Product{}
 	onlyProducts := []Product{}
 	for _, p := range products {
 		if p.ItemKind == "tool" {
 			tools = append(tools, p)
+		} else if p.ItemKind == "other" {
+			otherItems = append(otherItems, p)
 		} else {
 			onlyProducts = append(onlyProducts, p)
 		}
@@ -65,6 +68,7 @@ func (a *App) listTrash(w http.ResponseWriter, r *http.Request) {
 	extra["ideas"] = ideas
 	extra["products"] = onlyProducts
 	extra["tools"] = tools
+	extra["other_items"] = otherItems
 	writeJSON(w, 200, extra)
 }
 
@@ -113,10 +117,13 @@ func (a *App) creativeCatalog(ctx context.Context, userID string) (map[string]an
 		return nil, err
 	}
 	tools := []Product{}
+	otherItems := []Product{}
 	onlyProducts := []Product{}
 	for _, item := range products {
 		if item.ItemKind == "tool" {
 			tools = append(tools, item)
+		} else if item.ItemKind == "other" {
+			otherItems = append(otherItems, item)
 		} else {
 			onlyProducts = append(onlyProducts, item)
 		}
@@ -124,6 +131,7 @@ func (a *App) creativeCatalog(ctx context.Context, userID string) (map[string]an
 	extra["ideas"] = ideas
 	extra["products"] = onlyProducts
 	extra["tools"] = tools
+	extra["other_items"] = otherItems
 	extra["links"] = links
 	return extra, nil
 }

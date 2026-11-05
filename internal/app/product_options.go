@@ -25,18 +25,37 @@ func validOptionName(name string, max int) bool {
 }
 
 func ensureProductCategory(ctx context.Context, tx *sql.Tx, name string) (string, error) {
+	return ensureItemCategory(ctx, tx, name, "product")
+}
+
+func categoryTable(kind string) string {
+	if kind == "other-categories" {
+		return "other_item_categories"
+	}
+	return "product_categories"
+}
+
+func itemCategoryKind(itemKind string) string {
+	if itemKind == "other" {
+		return "other-categories"
+	}
+	return "categories"
+}
+
+func ensureItemCategory(ctx context.Context, tx *sql.Tx, name, itemKind string) (string, error) {
+	table := categoryTable(itemCategoryKind(itemKind))
 	name = clean(name, 100)
 	if name == "" {
 		return "", nil
 	}
 	if !validOptionName(name, 100) {
-		return "", fail(422, "validation", "商品分类名称无效")
+		return "", fail(422, "validation", "分类名称无效")
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO product_categories(name,created_at,position) VALUES(?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM product_categories WHERE deleted_at IS NULL))", name, now()); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO "+table+"(name,created_at,position) VALUES(?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM "+table+" WHERE deleted_at IS NULL))", name, now()); err != nil {
 		return "", err
 	}
 	var canonical string
-	err := tx.QueryRowContext(ctx, "SELECT name FROM product_categories WHERE name=? COLLATE NOCASE AND deleted_at IS NULL", name).Scan(&canonical)
+	err := tx.QueryRowContext(ctx, "SELECT name FROM "+table+" WHERE name=? COLLATE NOCASE AND deleted_at IS NULL", name).Scan(&canonical)
 	if err == sql.ErrNoRows {
 		return "", fail(409, "category_deleted", "该分类已被删除，请重新选择；需要恢复时可显式新建同名分类")
 	}
@@ -67,7 +86,7 @@ func resolveProductStatus(ctx context.Context, q querier, value string) (string,
 }
 
 func loadProductOptions(ctx context.Context, q querier, kind string) ([]ChoiceOption, error) {
-	query := "SELECT name,name,'',version FROM product_categories WHERE deleted_at IS NULL ORDER BY position,name COLLATE NOCASE"
+	query := "SELECT name,name,'',version FROM " + categoryTable(kind) + " WHERE deleted_at IS NULL ORDER BY position,name COLLATE NOCASE"
 	if kind == "statuses" {
 		query = "SELECT id,name,color,version FROM product_statuses WHERE deleted_at IS NULL ORDER BY position,created_at,id"
 	}
@@ -89,7 +108,7 @@ func loadProductOptions(ctx context.Context, q querier, kind string) ([]ChoiceOp
 
 func (a *App) productOptions(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
-	if kind != "categories" && kind != "statuses" {
+	if kind != "categories" && kind != "other-categories" && kind != "statuses" {
 		writeError(w, fail(404, "not_found", "选项类型不存在"))
 		return
 	}
@@ -123,14 +142,18 @@ func (a *App) productOptions(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback()
 		item := ChoiceOption{}
-		if kind == "categories" {
-			_, err = tx.ExecContext(r.Context(), "UPDATE product_categories SET deleted_at=NULL,version=version+1,position=(SELECT COALESCE(MAX(position),-1)+1 FROM product_categories WHERE deleted_at IS NULL) WHERE name=? COLLATE NOCASE AND deleted_at IS NOT NULL", name)
+		if kind != "statuses" {
+			table, itemKind := categoryTable(kind), "product"
+			if kind == "other-categories" {
+				itemKind = "other"
+			}
+			_, err = tx.ExecContext(r.Context(), "UPDATE "+table+" SET deleted_at=NULL,version=version+1,position=(SELECT COALESCE(MAX(position),-1)+1 FROM "+table+" WHERE deleted_at IS NULL) WHERE name=? COLLATE NOCASE AND deleted_at IS NOT NULL", name)
 			if err == nil {
-				item.Value, err = ensureProductCategory(r.Context(), tx, name)
+				item.Value, err = ensureItemCategory(r.Context(), tx, name, itemKind)
 			}
 			item.Label = item.Value
 			if err == nil {
-				err = tx.QueryRowContext(r.Context(), "SELECT version FROM product_categories WHERE name=? COLLATE NOCASE", item.Value).Scan(&item.Version)
+				err = tx.QueryRowContext(r.Context(), "SELECT version FROM "+table+" WHERE name=? COLLATE NOCASE", item.Value).Scan(&item.Version)
 			}
 		} else {
 			color := "#7c3aed"

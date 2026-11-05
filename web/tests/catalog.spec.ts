@@ -107,8 +107,9 @@ test('配方面板分组、商品道具混用材料、数量合并和同产物�
   await page.getByRole('button', { name: '添加合成产物', exact: true }).click()
   let picker = page.getByRole('dialog', { name: '选择合成产物', exact: true })
   await expect(picker.locator('.picker-group-toggle').first()).toHaveAttribute('aria-expanded','true')
-  await expect(picker.locator('.picker-group-toggle').last()).toHaveAttribute('aria-expanded','false')
-  await picker.locator('.picker-group-toggle').last().click()
+  const toolGroup = picker.locator('.picker-group-toggle').filter({ hasText: '道具' })
+  await expect(toolGroup).toHaveAttribute('aria-expanded','false')
+  await toolGroup.click()
   await picker.locator('.choice-row').filter({ hasText: '配方验收智能玉镯' }).click()
   await expect(page).toHaveURL(/\/recipes\/[a-f0-9-]+$/)
   const groupURL = page.url()
@@ -118,7 +119,7 @@ test('配方面板分组、商品道具混用材料、数量合并和同产物�
   for (const name of ['配方验收猕猴桃','配方验收芯片','配方验收猕猴桃']) {
     await editor.getByRole('button', { name: '＋ 添加材料', exact: true }).click()
     picker = page.getByRole('dialog', { name: '选择材料', exact: true })
-    await picker.getByRole('searchbox', { name: '搜索商品和道具', exact: true }).fill(name)
+    await picker.getByRole('searchbox', { name: '搜索物品', exact: true }).fill(name)
     await picker.locator('.choice-row').filter({ hasText: name }).click()
   }
   await expect(editor.locator('.ingredient-row')).toHaveCount(2)

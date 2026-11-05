@@ -8,11 +8,15 @@ import { api } from '../api'
 import type { ChoiceOption, Page, Product } from '../types'
 import { useEvents } from '../events'
 import FilterPopover from '../components/FilterPopover.vue'
-import { toast } from '../utils'
+import { itemCollection, itemLabel, toast } from '../utils'
 import { loadListPages, useListNavigation } from '../composables/listNavigation'
 
 interface ProductFilterOptions { companies: string[]; categories: string[]; attributes: string[]; statuses: ChoiceOption[] }
 
+const props = withDefaults(defineProps<{ kind?: 'product' | 'other' }>(), { kind: 'product' })
+const other = props.kind === 'other'
+const noun = itemLabel(props.kind)
+const collection = itemCollection(props.kind)
 const route = useRoute()
 type ProductListState = { items: Product[]; total: number; query: string; filters: Record<string, string[]>; layout: 'list' | 'grid'; sort: ProductSort }
 const previous: ProductListState | undefined = useListNavigation<ProductListState>(() => ({ items: products.value, total: total.value, query: query.value, filters: filters.value, layout: layout.value, sort: sort.value }))
@@ -54,11 +58,11 @@ function toggleDisplayed() {
 function batchSaved(count: number) { finishSelection(); refresh(); toast(`已更新 ${count} 件商品`) }
 function reselectProducts() { clearSelection(); refresh() }
 const layout = ref<'list' | 'grid'>('list')
-try { if (localStorage.getItem('com-itemgather:product-layout') === 'grid') layout.value = 'grid' } catch { /* Storage may be unavailable. */ }
+try { if (localStorage.getItem(`com-itemgather:${props.kind}-layout`) === 'grid') layout.value = 'grid' } catch { /* Storage may be unavailable. */ }
 if (previous) layout.value = previous.layout
 function changeLayout(value: 'list' | 'grid') {
   layout.value = value
-  try { localStorage.setItem('com-itemgather:product-layout', value) } catch { /* Keep the selection for this visit. */ }
+  try { localStorage.setItem(`com-itemgather:${props.kind}-layout`, value) } catch { /* Keep the selection for this visit. */ }
 }
 const sortGroups = [
   { label: '名称', options: [
@@ -83,7 +87,7 @@ const sortTrigger = ref<HTMLButtonElement>()
 const activeSort = ref(0)
 const selectedSort = computed(() => sortOptions.find(option => option.value === sort.value)!)
 try {
-  const stored = localStorage.getItem('com-itemgather:product-sort')
+  const stored = localStorage.getItem(`com-itemgather:${props.kind}-sort`)
   if (sortGroups.some(group => group.options.some(option => option.value === stored))) sort.value = stored as ProductSort
 } catch { /* Use the default when storage is unavailable. */ }
 if (previous) sort.value = previous.sort
@@ -137,8 +141,8 @@ function sortFocusOut(event: FocusEvent) {
 const filterOptions = ref<ProductFilterOptions>({ companies: [], categories: [], attributes: [], statuses: [{value:'concept',label:'构思中'},{value:'design',label:'设计中'},{value:'production',label:'制作中'},{value:'completed',label:'已完成'}] })
 const filters = ref<Record<string, string[]>>(previous?.filters || { company: [], category: [], attribute: [], status: [] })
 const filterGroups = computed(() => [
-  { key: 'company', label: '所属公司', allLabel: '全部公司', options: filterOptions.value.companies },
-  { key: 'category', label: '商品分类', allLabel: '全部分类', options: filterOptions.value.categories },
+  ...(!other ? [{ key: 'company', label: '所属公司', allLabel: '全部公司', options: filterOptions.value.companies }] : []),
+  { key: 'category', label: `${noun}分类`, allLabel: '全部分类', options: filterOptions.value.categories },
   { key: 'attribute', label: '动态属性分类', allLabel: '全部属性分类', options: filterOptions.value.attributes },
   { key: 'status', label: '制作状态', allLabel: '全部状态', options: filterOptions.value.statuses },
 ])
@@ -177,7 +181,7 @@ async function load(reset = true, preserveDepth = false) {
     const signal = requestController?.signal
     const fetchPage = (offset: number, limit: number) => {
       parameters.set('offset', String(offset)); parameters.set('limit', String(limit))
-      return api<Page<Product>>(`/products?${parameters}`, { signal })
+      return api<Page<Product>>(`/${collection}?${parameters}`, { signal })
     }
     const result = reset && preserveDepth
       ? await loadListPages(Math.max(30, products.value.length), fetchPage)
@@ -215,7 +219,7 @@ function scheduleSearch() {
 }
 async function loadFilters() {
   try {
-    filterOptions.value = await api<ProductFilterOptions>('/products/filters')
+    filterOptions.value = await api<ProductFilterOptions>(`/${collection}/filters`)
     const active = filters.value.status.filter(value => filterOptions.value.statuses.some(option => option.value === value))
     if (active.length !== filters.value.status.length) filters.value = { ...filters.value, status: active }
   }
@@ -224,7 +228,7 @@ async function loadFilters() {
 function refresh() { if (!searchTimer) void load(true, true); void loadFilters() }
 watch(query, () => { clearSelection(); scheduleSearch() }, { flush: 'sync' })
 watch(sort, value => {
-  try { localStorage.setItem('com-itemgather:product-sort', value) } catch { /* Keep the selection for this visit. */ }
+  try { localStorage.setItem(`com-itemgather:${props.kind}-sort`, value) } catch { /* Keep the selection for this visit. */ }
   searchNow()
 }, { flush: 'sync' })
 watch(filters, () => { clearSelection(); searchNow() })
@@ -251,18 +255,18 @@ onUnmounted(() => {
 useEvents(refresh)
 </script>
 <template>
-  <section class="products-page">
+  <section class="products-page" :class="{ 'other-items-page': other }">
     <div class="page-heading">
-      <div><h1>商品库</h1><p>查看商品设定与制作进度。</p></div>
-      <button class="primary" @click="showCreate = true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>创建商品</button>
+      <div><h2 class="collection-title">{{ noun }}库</h2><p>{{ other ? '记录超市非自带、可以拿出的物品及其动态属性。' : '查看商品设定与制作进度。' }}</p></div>
+      <button class="primary" @click="showCreate = true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>创建{{ noun }}</button>
     </div>
-    <p v-if="route.query.company_id" class="muted">正在查看所选公司旗下商品 · <RouterLink to="/products">查看全部公司</RouterLink></p>
+    <p v-if="!other && route.query.company_id" class="muted">正在查看所选公司旗下商品 · <RouterLink to="/products">查看全部公司</RouterLink></p>
     <form class="toolbar product-toolbar" @submit.prevent="searchNow">
       <div class="product-search">
         <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
-        <input v-model="query" type="search" aria-label="搜索商品" placeholder="搜索名称、公司、分类或描述" />
+        <input v-model="query" type="search" :aria-label="`搜索${noun}`" :placeholder="other ? '搜索中英文名、分类、描述或动态属性' : '搜索名称、公司、分类或描述'" />
       </div>
-      <FilterPopover id="product-filter-popover" v-model="filters" label="商品" :groups="filterGroups" />
+      <FilterPopover id="product-filter-popover" v-model="filters" :label="noun" :groups="filterGroups" />
     </form>
     <div v-if="activeFilters.length" class="product-active-filters" aria-label="已选筛选条件">
       <button v-for="filter in activeFilters" :key="`${filter.key}:${filter.value}`" type="button" :aria-label="`移除${filter.label}筛选`" @click="removeFilter(filter.key, filter.value)">{{ filter.label }}<span aria-hidden="true">×</span></button>
@@ -274,15 +278,15 @@ useEvents(refresh)
       <button type="button" class="text-button cancel-selection" @click="finishSelection">取消多选</button>
     </div>
     <div v-else class="product-results-bar">
-      <div class="product-result-summary"><p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件商品` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p><button v-if="products.length" ref="selectionTrigger" type="button" class="product-select-toggle" :disabled="selectionLocked" @click="startSelection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="m6.5 10 2.5 2.5 4.5-5" /></svg>多选</button></div>
+      <div class="product-result-summary"><p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件${noun}` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p><button v-if="!other && products.length" ref="selectionTrigger" type="button" class="product-select-toggle" :disabled="selectionLocked" @click="startSelection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="m6.5 10 2.5 2.5 4.5-5" /></svg>多选</button></div>
       <div class="product-browse-controls">
         <div ref="sortControl" class="product-sort" @keydown="sortKeydown" @focusout="sortFocusOut">
           <span>排序</span>
-          <button ref="sortTrigger" type="button" class="product-sort-trigger" role="combobox" aria-label="商品排序" aria-haspopup="listbox" aria-controls="product-sort-options" :aria-expanded="sortOpen" :data-value="sort" @click="sortOpen ? closeSort() : openSort()">
+          <button ref="sortTrigger" type="button" class="product-sort-trigger" role="combobox" :aria-label="`${noun}排序`" aria-haspopup="listbox" aria-controls="product-sort-options" :aria-expanded="sortOpen" :data-value="sort" @click="sortOpen ? closeSort() : openSort()">
             <span>{{ selectedSort.group }} · {{ selectedSort.label }}</span>
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
           </button>
-          <div v-if="sortOpen" id="product-sort-options" class="product-sort-menu" role="listbox" aria-label="商品排序方式">
+          <div v-if="sortOpen" id="product-sort-options" class="product-sort-menu" role="listbox" :aria-label="`${noun}排序方式`">
             <div v-for="group in sortGroups" :key="group.label" role="group" :aria-label="group.label">
               <span class="product-sort-group" aria-hidden="true">{{ group.label }}</span>
               <button v-for="option in group.options" :id="`product-sort-${option.value}`" :key="option.value" type="button" role="option" tabindex="-1" class="product-sort-option" :class="{ 'is-active': sortOptions[activeSort].value === option.value }" :aria-label="`${group.label} · ${option.label}`" :aria-selected="sort === option.value" @click="chooseSort(option.value)" @mouseenter="activeSort = sortOptions.findIndex(item => item.value === option.value)">
@@ -292,7 +296,7 @@ useEvents(refresh)
             </div>
           </div>
         </div>
-        <div class="product-view-switch" role="group" aria-label="商品展示方式">
+        <div class="product-view-switch" role="group" :aria-label="`${noun}展示方式`">
           <button type="button" :aria-pressed="layout === 'list'" @click="changeLayout('list')"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10M3 5h.5M3 10h.5M3 15h.5" /></svg>列表</button>
           <button type="button" :aria-pressed="layout === 'grid'" @click="changeLayout('grid')"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1" /><rect x="12" y="3" width="5" height="5" rx="1" /><rect x="3" y="12" width="5" height="5" rx="1" /><rect x="12" y="12" width="5" height="5" rx="1" /></svg>卡片</button>
         </div>
@@ -301,17 +305,19 @@ useEvents(refresh)
     <p v-if="error" class="error-text" role="alert">{{ error }} <button class="button-link" @click="load(products.length === 0)">重试</button></p>
     <p v-if="loading && !products.length" class="muted">读取中…</p>
     <div v-else-if="products.length" ref="catalog" class="product-catalog" :class="`is-${layout}`" :aria-busy="loading">
-      <div v-if="layout === 'list'" class="product-list-header" aria-hidden="true"><span>商品名称</span><span>所属公司</span><span>商品分类</span><span>制作状态</span></div>
+      <div v-if="layout === 'list'" class="product-list-header" aria-hidden="true"><span>{{ noun }}名称</span><span v-if="!other">所属公司</span><span>{{ noun }}分类</span><span>制作状态</span></div>
       <ProductCatalogItem v-for="product in products" :key="product.id" :product="product" :layout="layout" :selectable="selecting" :selected="selected.has(product.id)" :selection-disabled="selectionLocked" @toggle="toggleProduct(product)" />
     </div>
-    <div v-else class="empty-state">{{ hasConditions ? '没有找到符合条件的商品，试试其他关键词或筛选条件。' : '还没有商品。可以在这里创建，也可以从一条灵感主动创建。' }}</div>
+    <div v-else class="empty-state">{{ hasConditions ? `没有找到符合条件的${noun}，试试其他关键词或筛选条件。` : `还没有${noun}。可以在这里创建，也可以从一条灵感主动创建。` }}</div>
     <div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div>
   </section>
-  <ItemCreateDialog v-if="showCreate" kind="product" @created="showCreate = false; refresh()" @cancel="showCreate = false" />
+  <ItemCreateDialog v-if="showCreate" :kind="kind" @created="showCreate = false; refresh()" @cancel="showCreate = false" />
   <ProductBatchEditDialog v-if="batchProducts" :products="batchProducts" @saved="batchSaved" @cancel="batchProducts = undefined" @reselect="reselectProducts" />
 </template>
 
 <style scoped>
+.collection-title{margin:0;font-size:1.5rem}
+.other-items-page .product-catalog{--catalog-columns:minmax(0,2.5fr) minmax(0,1fr) minmax(6rem,1fr)}
 .page-heading .primary{gap:.4rem}
 svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .product-toolbar{flex-wrap:nowrap;gap:.65rem;margin:1.5rem 0 0}

@@ -580,6 +580,11 @@ func (a *App) catalogExport(ctx context.Context, all bool) (map[string]any, erro
 	}
 	result["recipes"] = recipes
 	if all {
+		options, e := loadProductOptions(ctx, a.db, "other-categories")
+		if e != nil {
+			return nil, e
+		}
+		result["other_item_categories"] = options
 		for _, kind := range []string{"categories", "statuses"} {
 			options, e := loadProductOptions(ctx, a.db, kind)
 			if e != nil {

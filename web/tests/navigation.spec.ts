@@ -95,7 +95,7 @@ test('商品编辑后通过返回链接和浏览器后退保留分页、位置�
   await page.getByLabel('密码', { exact: true }).fill('e2e-member-password')
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page).toHaveURL(/\/ideas$/)
-  await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '商品', exact: true }).click()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '物品', exact: true }).click()
   await expect(search).toHaveValue('')
   await expect(page.locator('.product-active-filters')).toHaveCount(0)
   await expectPosition(page, 0)

@@ -35,7 +35,7 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, kind := range kinds {
-		valid = valid && slices.Contains([]string{"all", "ideas", "products", "tools", "companies", "recipes"}, kind)
+		valid = valid && slices.Contains([]string{"all", "ideas", "products", "tools", "other-items", "companies", "recipes"}, kind)
 	}
 	if !valid {
 		writeError(w, fail(422, "validation", "搜索条件无效"))
@@ -69,11 +69,12 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 	ideas := []Idea{}
 	products := []Product{}
 	tools := []Product{}
+	otherItems := []Product{}
 	companies := []Company{}
 	groups := []RecipeGroup{}
 	more := map[string]bool{}
 	write := func() {
-		writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "tools": tools, "companies": companies, "recipes": groups, "creators": creators, "has_more": more, "limit": searchResultLimit})
+		writeJSON(w, 200, map[string]any{"ideas": ideas, "products": products, "tools": tools, "other_items": otherItems, "companies": companies, "recipes": groups, "creators": creators, "has_more": more, "limit": searchResultLimit})
 	}
 	if query == "" && len(kinds) == 0 && len(types) == 0 && len(directions) == 0 && len(authors) == 0 {
 		write()
@@ -116,7 +117,7 @@ func (a *App) globalSearch(w http.ResponseWriter, r *http.Request) {
 		for _, entity := range []struct {
 			kind, itemKind string
 			items          *[]Product
-		}{{"products", "product", &products}, {"tools", "tool", &tools}} {
+		}{{"products", "product", &products}, {"tools", "tool", &tools}, {"other-items", "other", &otherItems}} {
 			if !includes(entity.kind) {
 				continue
 			}

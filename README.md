@@ -1,6 +1,6 @@
 # COM-ItemGather
 
-供团队使用的《Call of Mommy》游戏设定库，集中记录灵感、公司、商品、道具和合成配方。灵感流程是：随手输入 → 立即保存 → 后台 AI 整理 → 搜索与编辑 → 手动关联正式设定。
+供团队使用的《Call of Mommy》游戏设定库，集中记录灵感、公司、商品、道具、其他物品和合成配方。灵感流程是：随手输入 → 立即保存 → 后台 AI 整理 → 搜索与编辑 → 手动关联正式设定。
 
 ## 架构
 
@@ -61,15 +61,17 @@ npm run dev
 
 - 灵感：首次原文与当前正文分离；保留标题、摘要、备注、灵感类型和商品方向，卡片只展示后两类小标签。名称候选、普通标签和灵感动态属性已移除，升级时清理对应数据及历史快照。收藏按用户隔离。
 - 公司：中英文名、别名、背景设定与单张 Logo（不超过 3 MiB）；支持就地创建、按中英文及别名搜索、查看旗下物品和合并重复公司。现有商品里的公司文本在迁移中自动转为公司记录，保留关联。
+- 物品：一级导航统一提供“物品”入口，进入默认显示“商品”，可切换“道具”和“其他物品”；现有商品与道具链接保持可用。
+- 其他物品：用于记录超市非自带、可以拿出的物品；支持中英文名、描述、动态属性、制作状态和图片，没有所属公司。分类独立于商品分类，在“设置 → 选项管理 → 其他物品分类”中维护，同名分类的新增、排序、删除与替换互不影响。支持灵感关联、合成材料与产物、修改历史、全局搜索、回收站、JSON 导出和只读 MCP。
 - 商品：中英文名、所属公司选择、制作状态、动态属性和图片。分类与制作状态使用紧凑的搜索选择菜单，状态显示自定义色点；管理链接在新标签页打开设置，保留当前表单草稿。所属公司支持原位搜索、快速新建和完整资料创建。
-- 选项管理：从“设置 → 选项管理”统一新增、删除制作状态与商品分类，通过拖动、上下移动按钮或方向键调整团队共享顺序。状态支持预设及自定义颜色，同步用于商品、道具、配方、筛选器及选择菜单；调整显示顺序不改变已有记录，初始状态仍优先使用“构思中”。排序和颜色更新检测多人并发变更，防止旧页面覆盖新设置。
+- 选项管理：从“设置 → 选项管理”统一新增、删除制作状态、商品分类与其他物品分类，通过拖动、上下移动按钮或方向键调整团队共享顺序。状态支持预设及自定义颜色，同步用于商品、道具、配方、筛选器及选择菜单；调整显示顺序不改变已有记录，初始状态仍优先使用“构思中”。排序和颜色更新检测多人并发变更，防止旧页面覆盖新设置。
 - 商品浏览：支持列表和卡片视图，排序菜单按中文名称、修改时间、创建时间分组，各提供正序和倒序。中文名按拼音排列，数字按自然顺序排列；无中文名的商品置后，未命名商品置于最后。默认创建时间最新在前，浏览器会记住视图和排序选择。排序在服务端分页前执行，搜索、筛选和自动加载保持同一顺序。
 - 浏览位置：商品、道具、灵感、公司、配方和全局搜索从详情返回时恢复滚动位置、搜索筛选、展示方式及已加载内容。商品排序与公司范围同时保留；后台刷新继续更新已展示的全部分页。浏览状态只保存在当前页面会话中，切换账号时清理。
 - 游戏读我：顶部“公司”和“搜索”之间提供“读我”，编辑游戏主仓库的 `README.md`。浏览器内即时渲染 Markdown，左侧章节导航，支持个人草稿、作者身份、GitHub App 机器人直推与冲突合并；不克隆游戏仓库。
 - 分类删除：在选项管理页使用“删除”。未使用分类直接确认删除；已使用分类可清空物品上的分类或替换为其他分类。配方把分类作为材料时必须选择替代分类，相同材料数量会合并。处理范围包含回收站记录，商品、道具与配方本身保留，并记录修改历史。确认期间关联内容变化会要求重新确认。已删除分类不会被旧草稿自动恢复；需要重新使用时可显式新建同名分类，之后也可以恢复引用它的旧历史版本。
 - 状态删除：在选项管理页使用“删除”。已使用时须指定替代状态，统一更新商品、道具和配方（包含回收站），至少保留一个状态。删除记录修改历史并通知其他成员；确认期间使用情况变化时需重新确认。
 - 道具：独立列表与详情，记录使用类别、触发方式、效果、多条获得来源及各自价格、冷却／次数／消耗／期限、模型与功能进度；使用类别默认为主动／被动，选择“＋”可在原位置新增团队共享类别。
-- 合成配方：每个商品或道具产物对应一个页面，页面内可维护多套独立保存、复制、验证和恢复的配方。材料支持商品、道具和商品分类；材料行数自由增减，数量为正整数，重复材料自动合并。选择面板默认展开商品、收起道具，搜索同时覆盖两组。未命名产物仍需先创建为具体商品或道具。
+- 合成配方：每个商品或道具产物对应一个页面，页面内可维护多套独立保存、复制、验证和恢复的配方。材料支持商品、道具、其他物品和商品分类；材料行数自由增减，数量为正整数，重复材料自动合并。选择面板默认展开商品、收起道具，搜索同时覆盖两组。未命名产物仍需先创建为具体商品或道具。
 - 新内容支持多人更新提示、版本冲突处理、修改历史、回收站、全局搜索和 JSON 导出。配方引用的已删除物品保留名称与删除标识，永久删除前需先解除配方引用。公司 Logo 更换校验失败时保留原图，保存成功后才清理旧文件。
 - 关联：独立多对多表，状态为备选/已采用/不采用；AI 不会创建商品或关联。
 - 并发：灵感与商品都有 `version`，更新冲突返回 409；前端显示差异并允许合并。恢复会产生新版本并取消旧整理任务。
@@ -83,7 +85,7 @@ npm run dev
 
 本机草稿和待同步队列按账号隔离。登录失效时保留原账号的本机内容，重新登录同一账号后可继续同步；主动退出或撤销当前设备会清理该账号本机内容，并停止旧同步任务。旧版没有账号归属的本机草稿和队列会保留，但不会自动归属或提交给下一账号；升级前应尽量先提交旧版尚未同步的内容。既有人工字段标记保持不变；旧版误锁字段的记录可在确认内容后执行一次“重新生成全部字段”。
 
-新增设定表：`companies`、`product_categories`、`product_statuses`、`tool_use_categories`、`recipe_groups`、`recipes`、`recipe_ingredients`、`setting_idea_links`。商品与道具共用物品身份，由 `products.item_kind` 区分，以共享附件、版本和灵感关联。
+新增设定表：`companies`、`product_categories`、`product_statuses`、`tool_use_categories`、`recipe_groups`、`recipes`、`recipe_ingredients`、`setting_idea_links`。商品、道具与其他物品共用物品身份、附件、版本和灵感关联，由 `products.item_kind`（`product/tool/other`）区分。其他物品分类存放在独立的 `other_item_categories` 表中。
 
 主要表：`users`、`sessions`、`mcp_oauth_clients`、`mcp_oauth_requests`、`mcp_oauth_grants`、`mcp_oauth_tokens`、`invitations`、`password_reset_tokens`、`ideas`、`products`、`product_attributes`、`idea_product_links`、`favorites`、`attachments`、`revisions`、`ai_tasks`、`events`、`audit_logs`。迁移位于 `internal/database/migrations/`，按版本执行，不会删库重建。
 
@@ -105,11 +107,11 @@ npm run dev
 - `/api/ideas`、`/api/products`：列表、创建、详情、编辑、软删除、恢复、永久删除和历史恢复。
 - `PATCH /api/products/batch`：携带 `items: [{id, version}]`，统一修改所选商品的 `category`、`development_status`、`company_id`；只修改提供的字段，分类和公司可传空字符串清空。每次最多 500 件，任一商品版本冲突或校验失败时整批回滚；每件商品保留独立历史与实时同步事件。商品页点击“多选”，再通过“批量修改”弹窗操作。
 - `/api/ideas/:id/favorite`、`/api/ideas/:id/ai`：收藏、重新整理。
-- `/api/product-options/categories`、`/api/product-options/statuses`：读取或新建团队共享商品分类、制作状态。`GET /api/product-options/statuses/usage?id=...` 查看使用情况；`DELETE /api/product-options/statuses` 携带 `id`、`token` 与可选 `replacement` 删除状态。`GET /api/product-options/categories/usage?name=...` 查看删除影响并取得确认令牌；`DELETE /api/product-options/categories` 携带 `name`、`token` 与可选 `replacement` 删除分类。
+- `/api/product-options/categories`、`/api/product-options/statuses`：读取或新建团队共享商品分类、制作状态。其他物品分类使用 `/api/product-options/other-categories`，支持相同的新建、使用情况、删除和排序接口。`GET /api/product-options/statuses/usage?id=...` 查看使用情况；`DELETE /api/product-options/statuses` 携带 `id`、`token` 与可选 `replacement` 删除状态。`GET /api/product-options/categories/usage?name=...` 查看删除影响并取得确认令牌；`DELETE /api/product-options/categories` 携带 `name`、`token` 与可选 `replacement` 删除分类。
 - `PATCH /api/product-options/:kind/order`：携带完整 `order` 与读取选项时返回的 `revision` 保存顺序；`PATCH /api/product-options/statuses/:id/color`：携带 `color`（`#RRGGBB`）与选项 `version` 修改颜色。列表、详情与导出返回共享颜色，修改选项不会递增商品或配方版本。
-- `/api/companies`：公司资料、合并、回收站与历史；`/api/tools`：道具及其历史与附件；`/api/tool-categories`：共享使用类别。
+- `/api/companies`：公司资料、合并、回收站与历史；`/api/tools`：道具及其历史与附件；`/api/tool-categories`：共享使用类别；`/api/other-items`：其他物品列表、详情、创建、编辑、历史及回收站操作，`/api/other-items/filters` 返回独立的分类与属性筛选。
 - `/api/recipe-groups`：按产物归组的页面；`/api/recipe-groups/:id/recipes`：添加配方；`/api/recipes/:id`：编辑配方及其历史、回收站操作。
-- `/api/links`：灵感与商品／道具的关联；`/api/setting-links`：灵感与公司／配方的关联。
+- `/api/links`：灵感与三类物品的关联；`/api/setting-links`：灵感与公司／配方的关联。
 - `/api/attachments`：图片上传、认证下载、删除。
 - `/api/search`、`/api/trash`、`/api/export`。
 - `/api/events`：SSE；`/api/system/status`：不泄露密钥的系统状态；`/api/system/backup`：管理员立即备份。
@@ -167,7 +169,7 @@ url = "https://ideas.example.com/api/mcp"
 | `list_records` | 无需关键词，分页浏览记录；`related_to` 可读取某条记录的全部关联。 |
 | `fetch` | `id` 必填，格式为 `kind:id`；读取完整业务内容和最多 50 条关联摘要。 |
 
-`search`/`list_records` 均支持 `kinds`（`idea/company/product/tool/recipe`）、`category`、`status`、`company_id`、`related_to`、`limit` 和 `cursor`。默认每页 20 条，最多 50 条；使用返回的 `next_cursor` 和相同查询条件继续翻页。`fetch` 返回的关联也带分页游标，可以传给带相同 `related_to` 的 `list_records`。搜索先返回摘要，再通过 `fetch` 读取所需记录，来源链接指向站内详情页。
+`search`/`list_records` 均支持 `kinds`（`idea/company/product/tool/other/recipe`）、`category`、`status`、`company_id`、`related_to`、`limit` 和 `cursor`。默认每页 20 条，最多 50 条；使用返回的 `next_cursor` 和相同查询条件继续翻页。`fetch` 返回的关联也带分页游标，可以传给带相同 `related_to` 的 `list_records`。搜索先返回摘要，再通过 `fetch` 读取所需记录，来源链接指向站内详情页。
 
 MCP 只返回当前团队共享、未删除记录的业务字段。附件仅提供名称、类型、大小和时间等元信息。个人收藏、账号标识、AI 任务状态、回收站、附件原图、系统配置和备份不在授权范围内。已删除材料和产物仅保留配方引用 ID 与数量，搜索和关联不会暴露其名称或正文；已删除配方页面下的配方也会排除。
 
