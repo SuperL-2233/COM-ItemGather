@@ -59,6 +59,7 @@ npm run dev
 
 ## 功能与数据设计
 
+- 思维导图：位于“物品”下的最后一个分类页 `/items/mind-map`，以公司分支展示旗下商品、道具及制作状态；未指定公司与其他物品进入“未归属公司”分支。支持名称／公司别名／分类搜索、公司／类型／状态筛选、分支折叠、画布拖动和缩放，点击名称进入详情。使用完整的轻量关系快照，包含无物品的公司，并排除回收站记录；SSE 通知后自动刷新，页面可见时每 15 秒校准一次，重新联网或返回页面时同步。同步失败保留原图，刷新保留筛选、折叠和缩放。
 - 灵感：首次原文与当前正文分离；保留标题、摘要、备注、灵感类型和商品方向，卡片只展示后两类小标签。名称候选、普通标签和灵感动态属性已移除，升级时清理对应数据及历史快照。收藏按用户隔离。
 - 公司：中英文名、别名、背景设定与单张 Logo（不超过 3 MiB）；支持就地创建、按中英文及别名搜索、查看旗下物品和合并重复公司。现有商品里的公司文本在迁移中自动转为公司记录，保留关联。
 - 物品：一级导航统一提供“物品”入口，进入默认显示“商品”，可切换“道具”和“其他物品”；现有商品与道具链接保持可用。
@@ -110,6 +111,7 @@ npm run dev
 - `/api/product-options/categories`、`/api/product-options/statuses`：读取或新建团队共享商品分类、制作状态。其他物品分类使用 `/api/product-options/other-categories`，支持相同的新建、使用情况、删除和排序接口。`GET /api/product-options/statuses/usage?id=...` 查看使用情况；`DELETE /api/product-options/statuses` 携带 `id`、`token` 与可选 `replacement` 删除状态。`GET /api/product-options/categories/usage?name=...` 查看删除影响并取得确认令牌；`DELETE /api/product-options/categories` 携带 `name`、`token` 与可选 `replacement` 删除分类。
 - `PATCH /api/product-options/:kind/order`：携带完整 `order` 与读取选项时返回的 `revision` 保存顺序；`PATCH /api/product-options/statuses/:id/color`：携带 `color`（`#RRGGBB`）与选项 `version` 修改颜色。列表、详情与导出返回共享颜色，修改选项不会递增商品或配方版本。
 - `/api/companies`：公司资料、合并、回收站与历史；`/api/tools`：道具及其历史与附件；`/api/tool-categories`：共享使用类别；`/api/other-items`：其他物品列表、详情、创建、编辑、历史及回收站操作，`/api/other-items/filters` 返回独立的分类与属性筛选。
+- `GET /api/item-mind-map`：登录后读取完整的公司／物品关系与当前共享制作状态。所有节点在同一数据库事务中读取，不受列表分页限制，不加载描述、附件和修改历史。
 - `/api/recipe-groups`：按产物归组的页面；`/api/recipe-groups/:id/recipes`：添加配方；`/api/recipes/:id`：编辑配方及其历史、回收站操作。
 - `/api/links`：灵感与三类物品的关联；`/api/setting-links`：灵感与公司／配方的关联。
 - `/api/attachments`：图片上传、认证下载、删除。

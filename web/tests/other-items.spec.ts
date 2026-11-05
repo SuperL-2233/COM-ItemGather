@@ -25,7 +25,7 @@ test('物品入口默认商品，其他物品支持独立分类、中英文名�
   await expect(mainNav.getByRole('link', { name: '物品', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(mainNav.getByRole('link', { name: '商品', exact: true })).toHaveCount(0)
   await expect(mainNav.getByRole('link', { name: '道具', exact: true })).toHaveCount(0)
-  await expect(tabs.getByRole('link')).toHaveText(['商品', '道具', '其他物品'])
+  await expect(tabs.getByRole('link')).toHaveText(['商品', '道具', '其他物品', '思维导图'])
   await tabs.getByRole('link', { name: '道具', exact: true }).click()
   await expect(page.getByRole('heading', { name: '道具库', exact: true })).toBeVisible()
   await tabs.getByRole('link', { name: '其他物品', exact: true }).click()

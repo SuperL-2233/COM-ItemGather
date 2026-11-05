@@ -26,6 +26,7 @@ const router = createRouter({
         { path: '/tools/:id', component: () => import('./views/ProductDetailView.vue'), meta: { itemKind: 'tool' } },
         { path: '/other-items', component: () => import('./views/ProductsView.vue'), props: { kind: 'other' }, meta: { itemKind: 'other' } },
         { path: '/other-items/:id', component: () => import('./views/ProductDetailView.vue'), meta: { itemKind: 'other' } },
+        { path: '/items/mind-map', component: () => import('./views/ItemMindMapView.vue'), meta: { itemKind: 'mind-map' } },
       ],
     },
     { path: '/companies', component: () => import('./views/CompaniesView.vue') },

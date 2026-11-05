@@ -5,6 +5,7 @@ const collections = [
   { kind: 'product', label: '商品', path: '/products' },
   { kind: 'tool', label: '道具', path: '/tools' },
   { kind: 'other', label: '其他物品', path: '/other-items' },
+  { kind: 'mind-map', label: '思维导图', path: '/items/mind-map' },
 ]
 </script>
 

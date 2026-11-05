@@ -148,6 +148,7 @@ func (a *App) routes() {
 		handle("POST "+base+"/{id}/revisions/{revision}/restore", a.itemHandler(a.restoreRevision("product")), true)
 	}
 	handle("PATCH /api/products/batch", a.batchUpdateProducts, true)
+	handle("GET /api/item-mind-map", a.getItemMindMap, true)
 	handle("GET /api/product-options/{kind}/usage", a.productCategoryUsage, true)
 	handle("DELETE /api/product-options/{kind}", a.deleteProductCategory, true)
 	handle("GET /api/product-options/statuses/usage", a.productStatusUsage, true)

@@ -36,3 +36,7 @@ export interface CategoryUsage { name: string; item_count: number; recipe_count:
 export interface CategoryDeletion { name: string; replacement: string; affected_items: number; affected_recipes: number }
 export interface StatusUsage { id: string; label: string; item_count: number; recipe_count: number; token: string }
 export interface StatusDeletion { id: string; label: string; replacement: string; replacement_label: string; affected_items: number; affected_recipes: number }
+
+export type MindMapCompany = Pick<Company, 'id' | 'chinese_name' | 'english_name' | 'aliases'>
+export type MindMapItem = Pick<Product, 'id' | 'chinese_name' | 'english_name' | 'item_kind' | 'company_id' | 'company_deleted' | 'category' | 'development_status' | 'development_status_label' | 'development_status_color'>
+export interface ItemMindMap { companies: MindMapCompany[]; items: MindMapItem[]; statuses: ChoiceOption[] }
