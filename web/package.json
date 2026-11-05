@@ -4,16 +4,21 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/prepare-markdown.mjs",
     "dev": "vite --host 0.0.0.0",
-    "prebuild": "node scripts/prepare-markdown.mjs",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "@lezer/highlight": "1.2.5",
+    "@lezer/markdown": "1.8.1",
     "dompurify": "3.4.17",
-    "vditor": "4.0.1",
+    "marked": "15.0.12",
     "vue": "3.5.13",
     "vue-router": "4.5.0"
   },

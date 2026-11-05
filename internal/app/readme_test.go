@@ -296,3 +296,27 @@ func TestReadmeRejectsInvalidAuthorsAndRetainsRejectedPush(t *testing.T) {
 		t.Fatal("failed push changed or discarded draft")
 	}
 }
+
+func TestReadmePushPreservesExactMarkdownSource(t *testing.T) {
+	environment := newTestEnvironment(t, nil)
+	mock := newReadmeMock(t, environment)
+	original := "\ufeff# 标题\r\n\r\n\r\n第一段  \r\n\r\n\n| 名称 |价格|\r\n|:-----|---:|\r\n|苹果|  10 |\r\n\r\n只改这里\r\n\r\n"
+	mock.mu.Lock()
+	mock.content, mock.sha = original, readmeBlobSHA(original)
+	mock.mu.Unlock()
+	admin := newAdminClient(t, environment)
+	initial := readReadme(t, admin)
+	if initial.Draft.Content != original {
+		t.Fatal("reading README changed its original bytes")
+	}
+	author := createTestReadmeAuthor(t, admin, "保真作者", "source@example.com")
+	changed := strings.Replace(original, "只改这里", "只改这一处", 1)
+	draft := saveTestReadme(t, admin, initial.Draft.Version, changed)
+	status, data := admin.request(t, "POST", "/api/readme/push", map[string]any{"version": draft.Version, "message": "docs: 局部修改", "author_id": author.ID, "author_version": author.Version})
+	assertStatus(t, status, 200, data)
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if mock.content != changed {
+		t.Fatal("GitHub received reformatted content instead of the exact saved Markdown")
+	}
+}

@@ -21,14 +21,13 @@
 .readme-status>.readme-unsaved::before{background:var(--accent)}
 .readme-save-meta{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:.3rem .8rem}
 .readme-workspace>.markdown-editor{border:0;border-radius:0}
-.markdown-editor{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}.markdown-editor-caption{display:flex;gap:1rem;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid var(--border);font-size:.75rem;color:var(--muted);background:var(--surface)}.markdown-editor-caption button{font-size:.82rem;color:var(--text)}.editor-loading{padding:2rem}.markdown-editor .vditor{border:0;border-radius:0;--border-color:var(--border);--panel-background-color:var(--surface);--toolbar-background-color:var(--surface-soft);--textarea-background-color:var(--surface);--textarea-text-color:var(--text);--toolbar-icon-color:var(--muted);--toolbar-icon-hover-color:var(--accent);--toolbar-height:42px}.markdown-editor .vditor-toolbar{padding:.4rem .8rem!important;border-bottom:1px solid var(--border)}.markdown-editor .vditor-toolbar button{min-width:30px;min-height:30px}.markdown-editor .vditor-outline{display:none!important;flex:none;width:220px;min-width:150px;max-width:30%;background:var(--surface-soft);color:var(--text);border-right:1px solid var(--border);font-size:.83rem;overflow-wrap:anywhere}.markdown-editor.show-outline .vditor-outline{display:block!important}.markdown-editor .vditor-outline__title{font-size:.78rem;letter-spacing:.08em;color:var(--muted);padding:1.2rem 1rem .6rem}.markdown-editor .vditor-outline__content{padding:.3rem .7rem 2rem}.markdown-editor .vditor-outline__content:empty::after{content:'添加标题后将在这里显示章节';display:block;padding:.5rem;color:var(--muted);font-size:.8rem;line-height:1.7}.markdown-editor .vditor-reset{color:var(--text);font-family:inherit;font-size:16px;line-height:1.85}.markdown-editor .vditor-ir>.vditor-reset,.markdown-editor .vditor-wysiwyg>.vditor-reset{padding:2.4rem clamp(1rem,4vw,4rem)!important}.markdown-editor .vditor-reset h1{font-size:2rem}.markdown-editor .vditor-reset h2{font-size:1.5rem}.markdown-editor .vditor-reset h3{font-size:1.2rem}.markdown-editor .vditor-reset code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.markdown-editor .vditor-ir,.markdown-editor .vditor-wysiwyg,.markdown-editor .vditor-sv{min-width:0;background:var(--surface)}.markdown-editor .vditor-reset input[type=checkbox]{width:auto}.markdown-editor .vditor-reset table{display:block;overflow-x:auto}.readme-push-modal{width:min(680px,100%)}.readme-push-modal>p{line-height:1.7;overflow-wrap:anywhere;font-size:.9rem}.readme-commit-preview{margin:1rem 0}.readme-commit-preview summary{cursor:pointer;font-size:.85rem}.readme-commit-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:35vh;overflow-y:auto;padding:1rem;background:var(--surface-soft);font-size:.8rem}.readme-merge-modal{width:min(1150px,100%)}.readme-merge-modal>p{line-height:1.7;font-size:.88rem}.readme-merge-columns{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.readme-merge-columns textarea{height:48vh;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.85rem}.readme-merge-modal .form-actions{flex-wrap:wrap}.readme-merge-modal .form-actions>.text-button{margin-right:auto}.readme-merge-modal .error-text{margin:1rem 0 0}
+.markdown-editor{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}.markdown-editor-caption{display:flex;gap:1rem;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid var(--border);font-size:.75rem;color:var(--muted);background:var(--surface)}.markdown-editor-caption button{font-size:.82rem;color:var(--text)}.editor-loading{padding:2rem}.readme-push-modal{width:min(680px,100%)}.readme-push-modal>p{line-height:1.7;overflow-wrap:anywhere;font-size:.9rem}.readme-commit-preview{margin:1rem 0}.readme-commit-preview summary{cursor:pointer;font-size:.85rem}.readme-commit-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:35vh;overflow-y:auto;padding:1rem;background:var(--surface-soft);font-size:.8rem}.readme-merge-modal{width:min(1150px,100%)}.readme-merge-modal>p{line-height:1.7;font-size:.88rem}.readme-merge-columns{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.readme-merge-columns textarea{height:48vh;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.85rem}.readme-merge-modal .form-actions{flex-wrap:wrap}.readme-merge-modal .form-actions>.text-button{margin-right:auto}.readme-merge-modal .error-text{margin:1rem 0 0}
 
 @media(max-width:1060px){
   .page-readme{padding-top:1.4rem}
   .readme-document-toolbar{grid-template-columns:minmax(0,1fr);gap:.75rem}
   .readme-author-selection .field{max-width:none}
   .readme-status{flex-direction:row;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem 1rem}
-  .markdown-editor .vditor-outline{width:180px}
 }
 @media(max-width:760px){
   .page-readme{padding:1rem .65rem 2rem}
@@ -46,15 +45,6 @@
   .readme-save-meta{justify-content:flex-start}
   .markdown-editor-caption{gap:.5rem;padding:.4rem .6rem}
   .markdown-editor-caption>span{font-size:.65rem}
-  .markdown-editor .vditor-outline{width:140px;min-width:110px;max-width:38%}
-  .markdown-editor .vditor-outline__content{padding:.2rem .2rem 1rem}
-  .markdown-editor .vditor-ir>.vditor-reset,.markdown-editor .vditor-wysiwyg>.vditor-reset{padding:1.3rem .9rem!important}
-  .markdown-editor .vditor-reset{font-size:15px}
-  .markdown-editor .vditor-toolbar{padding:.25rem .4rem!important}
   .readme-merge-columns{grid-template-columns:1fr}
   .readme-merge-columns textarea{height:28vh}
 }
-
-/* These pre elements are full document editors, so the global code-preview
-   height limit must not constrain them. Nested code blocks keep that limit. */
-.markdown-editor .vditor-ir>pre.vditor-reset,.markdown-editor .vditor-wysiwyg>pre.vditor-reset{max-height:none;border-radius:0}

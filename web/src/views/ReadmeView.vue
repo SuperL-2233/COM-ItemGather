@@ -233,7 +233,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); window.removeEvent
     <div v-if="merge" class="modal-backdrop" @click.self="!busy && (merge = undefined)">
       <section class="modal readme-merge-modal" role="dialog" aria-modal="true" aria-labelledby="readme-merge-title" @keydown.esc.stop.prevent="!busy && (merge = undefined)">
         <h2 id="readme-merge-title">{{ merge.kind === 'remote' ? '比较远端并合并' : '比较保存版本并合并' }}</h2><p>当前草稿已保留。参考左侧最新内容，在右侧合并需要保留的修改，完成后保存草稿。</p>
-        <div class="readme-merge-columns"><div class="field"><label for="readme-incoming">{{ merge.kind === 'remote' ? 'GitHub 最新版本' : '最新保存版本' }}</label><textarea id="readme-incoming" :value="merge.content" readonly spellcheck="false" /></div><div class="field"><label for="readme-merged">合并后的 Markdown</label><textarea id="readme-merged" v-model="mergedContent" spellcheck="false" :disabled="busy" /></div></div>
+        <div class="readme-merge-columns"><div class="field"><label for="readme-incoming">{{ merge.kind === 'remote' ? 'GitHub 最新版本' : '最新保存版本' }}</label><textarea id="readme-incoming" :value="merge.content" readonly spellcheck="false" /></div><div class="field"><label>合并后的 Markdown</label><MarkdownEditor v-model="mergedContent" source-only label="合并后的 Markdown" :disabled="busy" @save="acceptMerge" /></div></div>
         <div class="form-actions"><button class="text-button" :disabled="busy" @click="mergedContent = merge.content">将最新全文填入右侧</button><button class="secondary" :disabled="busy" @click="merge = undefined">返回继续编辑</button><button class="primary" :disabled="busy" @click="acceptMerge">保存合并草稿</button></div>
         <p v-if="error" class="error-text" role="alert">{{ error }}</p>
       </section>

@@ -6,7 +6,6 @@ web/node_modules/
 # Builds
 bin/
 web/dist/
-web/public/vendor/vditor-*/
 *.tsbuildinfo
 
 # Runtime data
