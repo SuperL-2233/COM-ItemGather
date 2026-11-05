@@ -30,12 +30,27 @@ const batchProducts = ref<Product[]>()
 const selectionTrigger = ref<HTMLButtonElement>()
 const catalog = ref<HTMLElement>()
 const allDisplayedSelected = computed(() => products.value.length > 0 && products.value.every(item => selected.value.has(item.id)))
-function startSelection() { closeSort(); selecting.value = true; void nextTick(() => catalog.value?.querySelector<HTMLInputElement>('.catalog-select input')?.focus()) }
+async function startSelection() {
+  closeSort()
+  selecting.value = true
+  await nextTick()
+  const top = Math.max(0, document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0)
+  const bottom = document.querySelector('.product-selection-bar')?.getBoundingClientRect().top || window.innerHeight
+  const items = Array.from(catalog.value?.querySelectorAll<HTMLElement>('.catalog-item') || [])
+  const visible = items.find(item => {
+    const bounds = item.getBoundingClientRect()
+    return bounds.top >= top && bounds.bottom <= bottom
+  }) || items.find(item => {
+    const bounds = item.getBoundingClientRect()
+    return bounds.bottom > top && bounds.top < bottom
+  })
+  visible?.querySelector<HTMLInputElement>('.catalog-select input')?.focus({ preventScroll: true })
+}
 function finishSelection() {
   selecting.value = false
   selected.value = new Map()
   batchProducts.value = undefined
-  void nextTick(() => selectionTrigger.value?.focus())
+  void nextTick(() => selectionTrigger.value?.focus({ preventScroll: true }))
 }
 function clearSelection() { selected.value = new Map(); batchProducts.value = undefined }
 function toggleProduct(product: Product) {
@@ -256,7 +271,7 @@ onUnmounted(() => {
 useEvents(refresh)
 </script>
 <template>
-  <section class="products-page" :class="{ 'other-items-page': other, 'is-selecting': selecting }">
+  <section class="products-page" :class="{ 'other-items-page': other, 'is-selecting': selecting, 'has-selection-controls': !other && (selecting || products.length > 0) }">
     <div class="page-heading">
       <div><h2 class="collection-title">{{ noun }}库</h2><p>{{ other ? '记录超市非自带、可以拿出的物品及其动态属性。' : '查看商品设定与制作进度。' }}</p></div>
       <button class="primary" @click="showCreate = true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>创建{{ noun }}</button>
@@ -273,7 +288,7 @@ useEvents(refresh)
       <button v-for="filter in activeFilters" :key="`${filter.key}:${filter.value}`" type="button" :aria-label="`移除${filter.label}筛选`" @click="removeFilter(filter.key, filter.value)">{{ filter.label }}<span aria-hidden="true">×</span></button>
     </div>
     <div class="product-results-bar">
-      <div class="product-result-summary"><p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件${noun}` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p><button v-if="!other && !selecting && products.length" ref="selectionTrigger" type="button" class="product-select-toggle" :disabled="selectionLocked" @click="startSelection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="m6.5 10 2.5 2.5 4.5-5" /></svg>多选</button></div>
+      <div class="product-result-summary"><p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件${noun}` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p></div>
       <div v-if="!selecting" class="product-browse-controls">
         <div ref="sortControl" class="product-sort" @keydown="sortKeydown" @focusout="sortFocusOut">
           <span>排序</span>
@@ -305,6 +320,7 @@ useEvents(refresh)
     </div>
     <div v-else class="empty-state">{{ hasConditions ? `没有找到符合条件的${noun}，试试其他关键词或筛选条件。` : `还没有${noun}。可以在这里创建，也可以从一条灵感主动创建。` }}</div>
     <div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div>
+    <button v-if="!other && !selecting && products.length" ref="selectionTrigger" type="button" class="product-select-toggle" :disabled="selectionLocked" @click="startSelection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="m6.5 10 2.5 2.5 4.5-5" /></svg>多选</button>
     <ProductSelectionBar v-if="selecting" :count="selected.size" :disabled="selectionLocked" :has-products="products.length > 0" :all-displayed-selected="allDisplayedSelected" @toggle-displayed="toggleDisplayed" @edit="batchProducts = [...selected.values()]" @cancel="finishSelection" />
   </section>
   <ItemCreateDialog v-if="showCreate" :kind="kind" @created="showCreate = false; refresh()" @cancel="showCreate = false" />
@@ -312,7 +328,8 @@ useEvents(refresh)
 </template>
 
 <style scoped>
-.products-page.is-selecting{padding-bottom:calc(5rem + env(safe-area-inset-bottom,0px))}
+.products-page.has-selection-controls{padding-bottom:calc(5rem + env(safe-area-inset-bottom,0px))}
+:global(body:has(.has-selection-controls) .toast){bottom:calc(5.75rem + env(safe-area-inset-bottom,0px))}
 .collection-title{margin:0;font-size:1.5rem}
 .other-items-page .product-catalog{--catalog-columns:minmax(0,2.5fr) minmax(0,1fr) minmax(6rem,1fr)}
 .page-heading .primary{gap:.4rem}
@@ -329,8 +346,8 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-active-filters button>span{font-size:1rem;flex:none}
 .product-results-bar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap;margin:1rem 0 .75rem}
 .product-result-summary{display:flex;align-items:center;gap:.65rem;min-width:0}
-.product-select-toggle{display:inline-flex;align-items:center;gap:.3rem;flex:none;min-height:2.2rem;padding:.35rem .45rem;border-radius:5px;background:transparent;color:var(--muted);font-size:.78rem}
-.product-select-toggle:hover{background:var(--surface-soft);color:var(--accent)}
+.product-select-toggle{position:fixed;right:max(1.5rem,calc((100vw - 1060px)/2 + 1.5rem));bottom:calc(.75rem + env(safe-area-inset-bottom,0px));z-index:30;display:inline-flex;align-items:center;gap:.4rem;min-height:2.75rem;padding:.6rem .9rem;border:1px solid var(--focus);border-radius:999px;background:var(--surface);color:var(--accent);box-shadow:var(--shadow);font-size:.85rem;font-weight:600}
+.product-select-toggle:hover{background:var(--surface-soft)}
 .product-select-toggle svg{width:1rem;height:1rem}
 .product-result-count{margin:0;color:var(--muted);font-size:.82rem;line-height:1.5}
 .product-result-count>span{font-size:.75rem}
@@ -359,6 +376,7 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-catalog.is-list{border:1px solid var(--border);border-radius:9px;background:var(--surface)}
 .product-list-header{display:grid;grid-template-columns:var(--catalog-columns);gap:var(--catalog-gap);padding:.8rem 1.1rem;background:var(--surface-soft);border-radius:8px 8px 0 0;color:var(--muted);font-size:.75rem}
 .product-catalog.is-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start}
+@media(max-width:760px){.product-select-toggle{right:max(.85rem,env(safe-area-inset-right,0px))}}
 @media(max-width:900px){.product-catalog{--catalog-gap:.8rem;--catalog-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,.8fr) minmax(5rem,.8fr)}.product-catalog.is-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.product-list-header{display:none}.product-catalog.is-grid{grid-template-columns:1fr;gap:.75rem}.product-result-count>span{display:block}.product-view-switch button{padding:.35rem .5rem}.product-toolbar{margin-top:1rem}.product-results-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem}.product-result-count{grid-column:1;grid-row:1}.product-browse-controls{display:contents}.product-view-switch{grid-column:2;grid-row:1}.product-sort{grid-column:1/-1;grid-row:2;width:100%}.product-sort-trigger{flex:1;width:100%;min-height:2.65rem}.product-sort-menu{left:0;right:0}.product-sort-option{min-width:0;min-height:2.65rem}}
 @media(max-width:600px){.product-result-summary{grid-column:1;grid-row:1;flex-wrap:wrap;gap:.15rem .4rem}}

@@ -54,7 +54,6 @@ onUnmounted(() => document.removeEventListener('click', outside))
 .selection-more{position:relative;flex:none}
 .selection-more-trigger{display:none}
 .selection-secondary-actions{display:flex;align-items:center;gap:.6rem}
-:global(body:has(.product-selection-bar) .toast){bottom:calc(5.75rem + env(safe-area-inset-bottom,0px))}
 @media(max-width:760px){.product-selection-bar{left:max(.85rem,env(safe-area-inset-left,0px));right:max(.85rem,env(safe-area-inset-right,0px))}}
 @media(max-width:600px){
   .product-selection-bar{gap:.5rem;padding:.5rem .6rem}

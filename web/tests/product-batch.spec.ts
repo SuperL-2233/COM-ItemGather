@@ -16,6 +16,51 @@ async function noOverflow(page: Page) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
 }
 
+test('滚动后可直接启动和退出多选，保留当前位置且入口不遮挡末项', async ({ page }) => {
+  const headers = await login(page)
+  for (let index = 0; index < 18; index++) {
+    const response = await page.request.post('/api/products', { headers, data: { chinese_name: `多选入口验收 ${index}` } })
+    expect(response.ok()).toBeTruthy()
+  }
+  await page.goto('/products')
+  await page.getByRole('searchbox', { name: '搜索商品', exact: true }).fill('多选入口验收')
+  await expect(page.locator('.catalog-item')).toHaveCount(18)
+  const trigger = page.getByRole('button', { name: '多选', exact: true })
+  const toolbar = page.getByRole('region', { name: '商品多选操作', exact: true })
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const layout of ['列表', '卡片']) {
+      await page.getByRole('button', { name: layout, exact: true }).click()
+      await expect(trigger).toBeInViewport({ ratio: 1 })
+      await expect(toolbar).toHaveCount(0)
+      const target = page.locator('.catalog-item').nth(12)
+      await target.scrollIntoViewIfNeeded()
+      expect(await page.evaluate(() => scrollY)).toBeGreaterThan(100)
+      await expect(trigger).toBeInViewport({ ratio: 1 })
+      await trigger.click()
+      await expect(toolbar).toBeInViewport({ ratio: 1 })
+      await expect(trigger).toHaveCount(0)
+      await expect(target).toBeInViewport({ ratio: 1 })
+      await expect(page.locator('.catalog-select input:focus')).toBeInViewport({ ratio: 1 })
+      expect(await page.evaluate(() => scrollY)).toBeGreaterThan(100)
+      const more = toolbar.getByRole('button', { name: '更多多选操作', exact: true })
+      if (await more.isVisible()) await more.click()
+      await toolbar.getByRole('button', { name: '取消多选', exact: true }).click()
+      await expect(trigger).toBeFocused()
+      await expect(target).toBeInViewport({ ratio: 1 })
+      expect(await page.evaluate(() => scrollY)).toBeGreaterThan(100)
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      await expect(trigger).toBeInViewport({ ratio: 1 })
+      const triggerBounds = (await trigger.boundingBox())!
+      const lastBounds = (await page.locator('.catalog-item').last().boundingBox())!
+      expect(triggerBounds.width).toBeLessThan(110)
+      expect(lastBounds.y + lastBounds.height).toBeLessThan(triggerBounds.y)
+      await noOverflow(page)
+    }
+  }
+  await page.screenshot({ path: '/tmp/com-products-selection-entry-mobile.png' })
+})
+
 test('商品多选保持页面简洁，支持三项批量修改和明确清空', async ({ page }) => {
   const headers = await login(page)
   const companyResponse = await page.request.post('/api/companies', { headers, data: { chinese_name: '批量验收新公司' } })
