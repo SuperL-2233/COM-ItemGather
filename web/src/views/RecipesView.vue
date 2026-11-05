@@ -38,7 +38,7 @@ onMounted(load); watch(query, schedule, { flush: 'sync' }); useEvents(refresh)
       <div v-if="layout === 'list'" class="product-list-header" aria-hidden="true"><span>产物名称</span><span>类型</span><span>配方数量</span><span>制作状态</span></div>
       <RecipeCatalogItem v-for="group in items" :key="group.id" :group="group" :layout="layout" />
     </div>
-    <div v-else class="empty-state">{{ query ? '没有匹配的产物或材料。' : '选择一个商品或道具作为产物，开始记录配方。' }}</div>
+    <div v-else class="empty-state">{{ query ? '没有匹配的产物或材料。' : '选择商品、道具或其他物品作为产物，开始记录配方。' }}</div>
   </section>
   <ItemPicker v-if="picking" title="选择合成产物" @select="selected" @cancel="picking = false" />
 </template>
