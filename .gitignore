@@ -6,6 +6,7 @@ web/node_modules/
 # Builds
 bin/
 web/dist/
+web/public/vendor/vditor-*/
 *.tsbuildinfo
 
 # Runtime data
@@ -17,6 +18,7 @@ backups/
 
 # Local configuration and logs
 .env
+*.pem
 *.log
 playwright-report/
 test-results/

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"com-itemgather/internal/config"
@@ -24,17 +25,19 @@ const userKey contextKey = "user"
 const sessionKey contextKey = "session"
 
 type App struct {
-	db         *sql.DB
-	cfg        config.Config
-	log        *log.Logger
-	mux        *http.ServeMux
-	hub        *Hub
-	ai         *AIWorker
-	limiter    *loginLimiter
-	apiLimiter *requestLimiter
-	runContext context.Context
-	oauth      *server.Server
-	oauthHTTP  *http.Client
+	db           *sql.DB
+	cfg          config.Config
+	log          *log.Logger
+	mux          *http.ServeMux
+	hub          *Hub
+	ai           *AIWorker
+	limiter      *loginLimiter
+	apiLimiter   *requestLimiter
+	runContext   context.Context
+	oauth        *server.Server
+	oauthHTTP    *http.Client
+	readmeGitHub *readmeGitHub
+	readmeMu     sync.Mutex
 }
 
 type APIError struct {
@@ -55,6 +58,7 @@ func New(db *sql.DB, cfg config.Config, logger *log.Logger) *App {
 	}
 	a := &App{db: db, cfg: cfg, log: logger, mux: http.NewServeMux(), hub: NewHub(), limiter: newLoginLimiter(), apiLimiter: newRequestLimiter(300), runContext: context.Background()}
 	a.oauthHTTP = newMCPMetadataClient()
+	a.readmeGitHub = newReadmeGitHub(cfg)
 	a.oauth = a.newOAuthServer()
 	a.routes()
 	a.ai = NewAIWorker(a)
@@ -105,6 +109,13 @@ func (a *App) routes() {
 	handle("POST /api/admin/password-resets", a.createPasswordReset, true)
 	handle("GET /api/system/status", a.systemStatus, true)
 	handle("POST /api/system/backup", a.manualBackup, true)
+	handle("GET /api/readme", a.getReadme, true)
+	handle("GET /api/readme/remote", a.getReadmeRemote, true)
+	handle("PUT /api/readme", a.saveReadme, true)
+	handle("PUT /api/readme/author", a.saveReadmeAuthor, true)
+	handle("POST /api/readme/refresh", a.refreshReadme, true)
+	handle("POST /api/readme/rebase", a.rebaseReadme, true)
+	handle("POST /api/readme/push", a.pushReadme, true)
 	a.registerMCPRoutes()
 	handle("GET /api/ideas", a.listIdeas, true)
 	handle("POST /api/ideas", a.createIdea, true)

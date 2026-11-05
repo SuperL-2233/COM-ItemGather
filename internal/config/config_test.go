@@ -35,3 +35,28 @@ func TestRetryAndBackgroundIntervals(t *testing.T) {
 		})
 	}
 }
+
+func TestReadmeGitHubConfiguration(t *testing.T) {
+	t.Setenv("README_GITHUB_REPOSITORY", "SuperL-2233/CallOfMommy")
+	t.Setenv("README_GITHUB_BRANCH", "main")
+	t.Setenv("README_GITHUB_APP_ID", "123")
+	t.Setenv("README_GITHUB_INSTALLATION_ID", "456")
+	t.Setenv("README_GITHUB_PRIVATE_KEY_FILE", "/etc/com-itemgather/github-app.pem")
+	cfg, err := Load()
+	if err != nil || cfg.ReadmeRepository != "SuperL-2233/CallOfMommy" || cfg.ReadmeBranch != "main" {
+		t.Fatalf("README configuration was not loaded: %v", err)
+	}
+	for _, tc := range []struct{ key, value string }{
+		{"README_GITHUB_REPOSITORY", "https://github.com/owner/repo"},
+		{"README_GITHUB_REPOSITORY", "owner/repo/other-file"},
+		{"README_GITHUB_APP_ID", "client-id"},
+		{"README_GITHUB_INSTALLATION_ID", "-1"},
+	} {
+		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
+			t.Setenv(tc.key, tc.value)
+			if _, err := Load(); err == nil {
+				t.Fatal("invalid README configuration was accepted")
+			}
+		})
+	}
+}

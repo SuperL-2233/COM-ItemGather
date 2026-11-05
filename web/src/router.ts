@@ -22,6 +22,7 @@ const router = createRouter({
     { path: '/tools/:id', component: () => import('./views/ProductDetailView.vue') },
     { path: '/companies', component: () => import('./views/CompaniesView.vue') },
     { path: '/companies/:id', component: () => import('./views/CompanyDetailView.vue') },
+    { path: '/readme', component: () => import('./views/ReadmeView.vue') },
     { path: '/recipes', component: () => import('./views/RecipesView.vue') },
     { path: '/recipes/:id', component: () => import('./views/RecipeDetailView.vue') },
     { path: '/search', component: () => import('./views/SearchView.vue') },

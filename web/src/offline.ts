@@ -49,6 +49,11 @@ const draftKey = (userID: string) => `composer:${userID}`
 export const saveDraft = (scope: OfflineScope, text: string, files: PendingFile[]) => operate(scope, 'drafts', 'readwrite', store => store.put({ user_id: scope.userID, text, files: plainFiles(files) }, draftKey(scope.userID)))
 export const getDraft = (scope: OfflineScope) => operate<{ text: string; files: PendingFile[] } | undefined>(scope, 'drafts', 'readonly', store => store.get(draftKey(scope.userID)))
 export const clearDraft = (scope: OfflineScope) => operate(scope, 'drafts', 'readwrite', store => store.delete(draftKey(scope.userID)))
+export interface LocalReadmeDraft { content: string; version: number; base_sha: string }
+const readmeKey = (scope: OfflineScope, repository: string, branch: string) => `readme:${scope.userID}:${repository}:${branch}`
+export const saveLocalReadme = (scope: OfflineScope, repository: string, branch: string, draft: LocalReadmeDraft) => operate(scope, 'drafts', 'readwrite', store => store.put(draft, readmeKey(scope, repository, branch)))
+export const getLocalReadme = (scope: OfflineScope, repository: string, branch: string) => operate<LocalReadmeDraft | undefined>(scope, 'drafts', 'readonly', store => store.get(readmeKey(scope, repository, branch)))
+export const clearLocalReadme = (scope: OfflineScope, repository: string, branch: string) => operate(scope, 'drafts', 'readwrite', store => store.delete(readmeKey(scope, repository, branch)))
 export function queueOutbox(scope: OfflineScope, item: OutboxItem) {
   if (item.user_id !== scope.userID) throw new Error('待同步内容属于另一账号')
   return operate(scope, 'outbox', 'readwrite', store => store.put({ ...item, files: plainFiles(item.files) }))
@@ -61,6 +66,13 @@ export const clearOffline = async (userID: string) => {
     const transaction = db.transaction(['drafts', 'outbox'], 'readwrite')
     transaction.objectStore('drafts').delete(draftKey(userID))
     transaction.objectStore('drafts').delete('composer')
+    const drafts = transaction.objectStore('drafts').openCursor()
+    drafts.onsuccess = () => {
+      const cursor = drafts.result
+      if (!cursor) return
+      if (String(cursor.key).startsWith(`readme:${userID}:`)) cursor.delete()
+      cursor.continue()
+    }
     const request = transaction.objectStore('outbox').openCursor()
     request.onsuccess = () => {
       const cursor = request.result

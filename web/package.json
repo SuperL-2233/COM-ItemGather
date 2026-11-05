@@ -4,12 +4,16 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/prepare-markdown.mjs",
     "dev": "vite --host 0.0.0.0",
+    "prebuild": "node scripts/prepare-markdown.mjs",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "dompurify": "3.4.17",
+    "vditor": "4.0.1",
     "vue": "3.5.13",
     "vue-router": "4.5.0"
   },

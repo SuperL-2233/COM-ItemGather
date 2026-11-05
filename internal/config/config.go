@@ -3,34 +3,40 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type Config struct {
-	AppEnv              string
-	Addr                string
-	PublicURL           string
-	DatabasePath        string
-	AttachmentDir       string
-	WebDist             string
-	AIBaseURL           string
-	AIAPIKey            string
-	AIModel             string
-	AITimeout           time.Duration
-	AIMaxRetries        int
-	AIWorkers           int
-	SessionTTL          time.Duration
-	RememberTTL         time.Duration
-	MaxUploadBytes      int64
-	MaxAttachments      int
-	MaxStorageBytes     int64
-	BackupDir           string
-	BackupInterval      time.Duration
-	BackupKeep          int
-	BackupRetentionDays int
-	SecureCookie        bool
+	AppEnv               string
+	Addr                 string
+	PublicURL            string
+	DatabasePath         string
+	AttachmentDir        string
+	WebDist              string
+	AIBaseURL            string
+	AIAPIKey             string
+	AIModel              string
+	AITimeout            time.Duration
+	AIMaxRetries         int
+	AIWorkers            int
+	SessionTTL           time.Duration
+	RememberTTL          time.Duration
+	MaxUploadBytes       int64
+	MaxAttachments       int
+	MaxStorageBytes      int64
+	BackupDir            string
+	BackupInterval       time.Duration
+	BackupKeep           int
+	BackupRetentionDays  int
+	SecureCookie         bool
+	ReadmeRepository     string
+	ReadmeBranch         string
+	ReadmeAppID          string
+	ReadmeInstallationID string
+	ReadmePrivateKeyFile string
 }
 
 func Load() (Config, error) {
@@ -60,7 +66,22 @@ func Load() (Config, error) {
 		MaxUploadBytes: maxUpload, MaxAttachments: integer("MAX_ATTACHMENTS_PER_IDEA", integer("MAX_ATTACHMENTS", 10)),
 		MaxStorageBytes: int64(integer("MAX_STORAGE_MB", 2048)) * 1024 * 1024,
 		BackupDir:       env("BACKUP_DIR", "backups"), BackupInterval: duration("BACKUP_INTERVAL", 24*time.Hour), BackupKeep: integer("BACKUP_KEEP", 10), BackupRetentionDays: integer("BACKUP_RETENTION_DAYS", 30),
-		SecureCookie: boolean("COOKIE_SECURE", secureDefault),
+		SecureCookie:         boolean("COOKIE_SECURE", secureDefault),
+		ReadmeRepository:     strings.TrimSpace(os.Getenv("README_GITHUB_REPOSITORY")),
+		ReadmeBranch:         env("README_GITHUB_BRANCH", "main"),
+		ReadmeAppID:          strings.TrimSpace(os.Getenv("README_GITHUB_APP_ID")),
+		ReadmeInstallationID: strings.TrimSpace(os.Getenv("README_GITHUB_INSTALLATION_ID")),
+		ReadmePrivateKeyFile: strings.TrimSpace(os.Getenv("README_GITHUB_PRIVATE_KEY_FILE")),
+	}
+	if cfg.ReadmeRepository != "" && !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(cfg.ReadmeRepository) {
+		return cfg, fmt.Errorf("README_GITHUB_REPOSITORY must be owner/repo")
+	}
+	for name, value := range map[string]string{"README_GITHUB_APP_ID": cfg.ReadmeAppID, "README_GITHUB_INSTALLATION_ID": cfg.ReadmeInstallationID} {
+		if value != "" {
+			if id, err := strconv.ParseInt(value, 10, 64); err != nil || id <= 0 {
+				return cfg, fmt.Errorf("%s must be a positive integer", name)
+			}
+		}
 	}
 	if cfg.AIMaxRetries < 0 || cfg.AIMaxRetries > 3 {
 		return cfg, fmt.Errorf("AI_MAX_RETRIES must be between 0 and 3")

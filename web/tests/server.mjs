@@ -24,6 +24,12 @@ const environment = {
   AI_TIMEOUT: '3s',
   AI_MAX_RETRIES: '1',
   AI_WORKER_CONCURRENCY: '1',
+  // Browser tests must never inherit credentials for the real game repository.
+  README_GITHUB_REPOSITORY: '',
+  README_GITHUB_BRANCH: 'main',
+  README_GITHUB_APP_ID: '',
+  README_GITHUB_INSTALLATION_ID: '',
+  README_GITHUB_PRIVATE_KEY_FILE: '',
 }
 const failedCalls = new Map()
 const mock = createServer((request, response) => {
