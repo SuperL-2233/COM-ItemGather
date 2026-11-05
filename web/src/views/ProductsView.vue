@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import ItemCreateDialog from '../components/ItemCreateDialog.vue'
 import ProductCatalogItem from '../components/ProductCatalogItem.vue'
 import ProductBatchEditDialog from '../components/ProductBatchEditDialog.vue'
+import ProductSelectionBar from '../components/ProductSelectionBar.vue'
 import { api } from '../api'
 import type { ChoiceOption, Page, Product } from '../types'
 import { useEvents } from '../events'
@@ -255,7 +256,7 @@ onUnmounted(() => {
 useEvents(refresh)
 </script>
 <template>
-  <section class="products-page" :class="{ 'other-items-page': other }">
+  <section class="products-page" :class="{ 'other-items-page': other, 'is-selecting': selecting }">
     <div class="page-heading">
       <div><h2 class="collection-title">{{ noun }}库</h2><p>{{ other ? '记录超市非自带、可以拿出的物品及其动态属性。' : '查看商品设定与制作进度。' }}</p></div>
       <button class="primary" @click="showCreate = true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>创建{{ noun }}</button>
@@ -271,15 +272,9 @@ useEvents(refresh)
     <div v-if="activeFilters.length" class="product-active-filters" aria-label="已选筛选条件">
       <button v-for="filter in activeFilters" :key="`${filter.key}:${filter.value}`" type="button" :aria-label="`移除${filter.label}筛选`" @click="removeFilter(filter.key, filter.value)">{{ filter.label }}<span aria-hidden="true">×</span></button>
     </div>
-    <div v-if="selecting" class="product-selection-bar" role="region" aria-label="商品多选操作">
-      <p role="status">已选 <strong>{{ selected.size }}</strong> 件商品</p>
-      <button type="button" class="secondary small select-displayed" :disabled="selectionLocked || !products.length" @click="toggleDisplayed">{{ allDisplayedSelected ? '取消全选' : '全选已显示' }}</button>
-      <button type="button" class="primary small edit-selected" :disabled="!selected.size || selectionLocked" @click="batchProducts = [...selected.values()]">批量修改</button>
-      <button type="button" class="text-button cancel-selection" @click="finishSelection">取消多选</button>
-    </div>
-    <div v-else class="product-results-bar">
-      <div class="product-result-summary"><p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件${noun}` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p><button v-if="!other && products.length" ref="selectionTrigger" type="button" class="product-select-toggle" :disabled="selectionLocked" @click="startSelection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="m6.5 10 2.5 2.5 4.5-5" /></svg>多选</button></div>
-      <div class="product-browse-controls">
+    <div class="product-results-bar">
+      <div class="product-result-summary"><p class="product-result-count" role="status">{{ loading ? '正在读取…' : `${hasConditions ? '找到' : '共'} ${total} 件${noun}` }}<span v-if="!loading && products.length < total"> · 已显示 {{ products.length }} 件</span></p><button v-if="!other && !selecting && products.length" ref="selectionTrigger" type="button" class="product-select-toggle" :disabled="selectionLocked" @click="startSelection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2" /><path d="m6.5 10 2.5 2.5 4.5-5" /></svg>多选</button></div>
+      <div v-if="!selecting" class="product-browse-controls">
         <div ref="sortControl" class="product-sort" @keydown="sortKeydown" @focusout="sortFocusOut">
           <span>排序</span>
           <button ref="sortTrigger" type="button" class="product-sort-trigger" role="combobox" :aria-label="`${noun}排序`" aria-haspopup="listbox" aria-controls="product-sort-options" :aria-expanded="sortOpen" :data-value="sort" @click="sortOpen ? closeSort() : openSort()">
@@ -310,12 +305,14 @@ useEvents(refresh)
     </div>
     <div v-else class="empty-state">{{ hasConditions ? `没有找到符合条件的${noun}，试试其他关键词或筛选条件。` : `还没有${noun}。可以在这里创建，也可以从一条灵感主动创建。` }}</div>
     <div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div>
+    <ProductSelectionBar v-if="selecting" :count="selected.size" :disabled="selectionLocked" :has-products="products.length > 0" :all-displayed-selected="allDisplayedSelected" @toggle-displayed="toggleDisplayed" @edit="batchProducts = [...selected.values()]" @cancel="finishSelection" />
   </section>
   <ItemCreateDialog v-if="showCreate" :kind="kind" @created="showCreate = false; refresh()" @cancel="showCreate = false" />
   <ProductBatchEditDialog v-if="batchProducts" :products="batchProducts" @saved="batchSaved" @cancel="batchProducts = undefined" @reselect="reselectProducts" />
 </template>
 
 <style scoped>
+.products-page.is-selecting{padding-bottom:calc(5rem + env(safe-area-inset-bottom,0px))}
 .collection-title{margin:0;font-size:1.5rem}
 .other-items-page .product-catalog{--catalog-columns:minmax(0,2.5fr) minmax(0,1fr) minmax(6rem,1fr)}
 .page-heading .primary{gap:.4rem}
@@ -335,11 +332,6 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-select-toggle{display:inline-flex;align-items:center;gap:.3rem;flex:none;min-height:2.2rem;padding:.35rem .45rem;border-radius:5px;background:transparent;color:var(--muted);font-size:.78rem}
 .product-select-toggle:hover{background:var(--surface-soft);color:var(--accent)}
 .product-select-toggle svg{width:1rem;height:1rem}
-.product-selection-bar{display:flex;align-items:center;gap:.6rem;margin:1rem 0 .75rem;padding:.65rem .8rem;background:color-mix(in srgb,var(--accent) 5%,var(--surface));border:1px solid var(--focus);border-radius:8px}
-.product-selection-bar p{margin:0 auto 0 0;font-size:.85rem;color:var(--muted)}
-.product-selection-bar strong{color:var(--text)}
-.product-selection-bar button{font-size:.8rem}
-.cancel-selection{white-space:nowrap}
 .product-result-count{margin:0;color:var(--muted);font-size:.82rem;line-height:1.5}
 .product-result-count>span{font-size:.75rem}
 .product-browse-controls{display:flex;align-items:center;gap:.75rem;margin-left:auto;min-width:0}
@@ -369,5 +361,5 @@ svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.6;st
 .product-catalog.is-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start}
 @media(max-width:900px){.product-catalog{--catalog-gap:.8rem;--catalog-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,.8fr) minmax(5rem,.8fr)}.product-catalog.is-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.product-list-header{display:none}.product-catalog.is-grid{grid-template-columns:1fr;gap:.75rem}.product-result-count>span{display:block}.product-view-switch button{padding:.35rem .5rem}.product-toolbar{margin-top:1rem}.product-results-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem}.product-result-count{grid-column:1;grid-row:1}.product-browse-controls{display:contents}.product-view-switch{grid-column:2;grid-row:1}.product-sort{grid-column:1/-1;grid-row:2;width:100%}.product-sort-trigger{flex:1;width:100%;min-height:2.65rem}.product-sort-menu{left:0;right:0}.product-sort-option{min-width:0;min-height:2.65rem}}
-@media(max-width:600px){.product-result-summary{grid-column:1;grid-row:1;flex-wrap:wrap;gap:.15rem .4rem}.product-selection-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.6rem}.product-selection-bar p{grid-column:1;grid-row:1}.cancel-selection{grid-column:2;grid-row:1;justify-self:end}.select-displayed{grid-column:1;grid-row:2}.edit-selected{grid-column:2;grid-row:2;min-width:6rem}}
+@media(max-width:600px){.product-result-summary{grid-column:1;grid-row:1;flex-wrap:wrap;gap:.15rem .4rem}}
 </style>
