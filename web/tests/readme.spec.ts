@@ -22,6 +22,40 @@ async function appendText(page: Page, value: string) {
   await page.keyboard.insertText(value)
 }
 
+test('Markdown 正文填满编辑区域，长文末尾可见并可继续编辑', async ({ page }, testInfo) => {
+  await login(page)
+  await seedDraft(page, '# 编辑区域高度验收\n\n' + Array.from({ length: 60 }, (_, index) => `第 ${index + 1} 段：长文内容应正常滚动。\n\n`).join('') + '## 最后一章\n\n文档末尾标记\n')
+  await page.goto('/readme')
+  const field = textbox(page)
+  await expect(field).toBeVisible()
+  const fillsHeight = () => field.evaluate(element => ({ height: element.getBoundingClientRect().height, available: element.parentElement!.getBoundingClientRect().height }))
+  const initial = await fillsHeight()
+  expect(initial.available).toBeGreaterThan(400)
+  expect(initial.height).toBeGreaterThanOrEqual(initial.available - 1)
+  await page.screenshot({ path: testInfo.outputPath('readme-height-fixed.png'), fullPage: true })
+  await page.getByRole('navigation', { name: '章节导航', exact: true }).getByRole('button', { name: '最后一章', exact: true }).click()
+  await expect.poll(() => field.evaluate(element => {
+    const last = element.lastElementChild!.getBoundingClientRect()
+    const bounds = element.getBoundingClientRect()
+    return last.bottom <= bounds.bottom && last.top >= bounds.top
+  })).toBeTruthy()
+  await appendText(page, '底部继续编辑验收')
+  await page.keyboard.press('Control+s')
+  await expect(page.locator('.readme-status')).not.toContainText('有未保存的修改')
+  await expect.poll(async () => (await (await page.request.get('/api/readme')).json()).draft.content).toContain('底部继续编辑验收')
+  await page.locator('.vditor-toolbar button[data-type="fullscreen"]').click()
+  const fullscreen = await fillsHeight()
+  expect(fullscreen.height).toBeGreaterThanOrEqual(fullscreen.available - 1)
+  await page.locator('.vditor-toolbar button[data-type="fullscreen"]').click()
+  await page.locator('.vditor-toolbar button[data-type="edit-mode"]').click()
+  await page.locator('.vditor-toolbar button[data-mode="wysiwyg"]').click()
+  const wysiwyg = await fillsHeight()
+  expect(wysiwyg.height).toBeGreaterThanOrEqual(wysiwyg.available - 1)
+  await page.setViewportSize({ width: 390, height: 844 })
+  const mobile = await fillsHeight()
+  expect(mobile.height).toBeGreaterThanOrEqual(mobile.available - 1)
+})
+
 test('读我客户端编辑、目录和草稿按账号隔离，作者在设置维护并通过下拉选择', async ({ page }, testInfo) => {
   await login(page)
   await seedDraft(page, '# 游戏编辑验收\n\n## 世界观\n\n这是 **游戏设定**。\n\n' + Array.from({ length: 20 }, (_, index) => `世界观段落 ${index}。\n\n`).join('') + '## 操作说明\n\n- 移动\n- 交互\n\n```go\nfmt.Println("hello")\n```\n')
