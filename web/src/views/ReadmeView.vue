@@ -201,10 +201,10 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); window.removeEvent
 
 <template>
   <section class="readme-page">
-    <div class="page-heading readme-heading">
-      <div><div class="readme-eyebrow">游戏文档</div><h1>读我 <span class="readme-filename">README.md</span></h1><p v-if="state?.github.repository">{{ state.github.repository }} <span class="readme-branch">{{ state.github.branch }}</span></p><p v-else>在这里阅读、编辑游戏说明。</p></div>
-      <div v-if="state" class="readme-actions"><button class="secondary" :disabled="busy || !state.github.configured" @click="updateRemote">读取远端</button><button class="secondary" :disabled="busy || !dirty" @click="save">{{ busy ? '处理中…' : '保存' }}</button><button class="primary" :disabled="busy || !state.github.configured || !unpublished" @click="preparePush">提交推送</button></div>
-    </div>
+    <header class="readme-heading">
+      <div class="readme-title"><h1>读我</h1><span v-if="state?.github.branch" class="readme-branch" :aria-label="`当前分支 ${state.github.branch}`">{{ state.github.branch }}</span></div>
+      <div v-if="state" class="readme-actions"><button class="secondary" :disabled="busy || !state.github.configured" @click="updateRemote">读取远端</button><button class="secondary" title="保存个人草稿" :disabled="busy || !dirty" @click="save">{{ busy ? '处理中…' : '保存' }}</button><button class="primary" :disabled="busy || !state.github.configured || !unpublished" @click="preparePush">提交推送</button></div>
+    </header>
     <p v-if="error" class="readme-notice error-text" role="alert">{{ error }}</p>
     <p v-if="localError" class="readme-notice">{{ localError }}</p>
     <div v-if="recovery" class="readme-notice"><span>发现另一份本机未保存的草稿，保存版本已变化，可以比较后恢复。</span><button class="secondary small" @click="recoverOlderDraft">比较并恢复</button><button class="text-button" @click="discardRecovery">忽略本机草稿</button></div>
@@ -212,15 +212,18 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); window.removeEvent
     <button v-else-if="!state" class="secondary" @click="load">重新加载</button>
     <template v-if="state && !loading">
       <div v-if="!state.github.configured" class="readme-notice">尚未连接游戏仓库。现在可以编辑和保存个人草稿，管理员完成 GitHub App 配置后即可读取和推送 README。</div>
-      <div class="readme-author-selection"><div class="field"><label for="readme-author-choice">提交作者</label><select id="readme-author-choice" v-model="selectedAuthorID" :disabled="busy || pushOpen || !state.authors.length" @change="selectAuthor"><option value="" disabled>{{ state.authors.length ? '选择本次提交的作者' : '请先在设置中添加作者' }}</option><option v-for="author in state.authors" :key="author.id" :value="author.id">{{ author.name }} · {{ author.email }}</option></select></div><RouterLink to="/settings?tab=readme-authors" target="_blank" rel="noopener noreferrer">管理作者 ↗</RouterLink><p>提交将署名为所选作者，由机器人代为推送。</p></div>
-      <div class="readme-status" role="status"><span :class="{ 'readme-unsaved': dirty }">{{ dirty ? '有未保存的修改' : unpublished ? '草稿已保存 · 尚未推送' : state.draft.base_sha ? '与已读取的 GitHub 版本一致' : '个人草稿' }}</span><span v-if="state.draft.updated_at">保存于 {{ formatDate(state.draft.updated_at) }}</span><a v-if="state.draft.last_commit_url" :href="state.draft.last_commit_url" target="_blank" rel="noopener noreferrer">查看上次提交 ↗</a></div>
-      <MarkdownEditor ref="editor" v-model="content" :disabled="busy" @save="save" @error="error = $event" />
-      <p class="readme-footnote">“保存”保留你的个人草稿；“提交推送”会将修改发布到游戏仓库。其他成员的草稿互不覆盖。</p>
+      <div class="readme-workspace">
+        <div class="readme-document-toolbar">
+          <div class="readme-author-selection"><div class="field"><label for="readme-author-choice">提交作者</label><select id="readme-author-choice" v-model="selectedAuthorID" :disabled="busy || pushOpen || !state.authors.length" @change="selectAuthor"><option value="" disabled>{{ state.authors.length ? '选择本次提交的作者' : '请先在设置中添加作者' }}</option><option v-for="author in state.authors" :key="author.id" :value="author.id">{{ author.name }} · {{ author.email }}</option></select></div><RouterLink to="/settings?tab=readme-authors" target="_blank" rel="noopener noreferrer">管理作者 ↗</RouterLink></div>
+          <div class="readme-status" role="status"><span :class="{ 'readme-unsaved': dirty }">{{ dirty ? '有未保存的修改' : unpublished ? '草稿已保存 · 尚未推送' : state.draft.base_sha ? '与已读取的 GitHub 版本一致' : '个人草稿' }}</span><div class="readme-save-meta"><time v-if="state.draft.updated_at" :datetime="state.draft.updated_at">保存于 {{ formatDate(state.draft.updated_at) }}</time><a v-if="state.draft.last_commit_url" :href="state.draft.last_commit_url" target="_blank" rel="noopener noreferrer">查看上次提交 ↗</a></div></div>
+        </div>
+        <MarkdownEditor ref="editor" v-model="content" :disabled="busy" @save="save" @error="error = $event" />
+      </div>
     </template>
 
     <div v-if="pushOpen && state && pendingAuthor" class="modal-backdrop" @click.self="!busy && (pushOpen = false)">
       <form class="modal readme-push-modal" role="dialog" aria-modal="true" aria-labelledby="readme-push-title" @submit.prevent="push" @keydown.esc.stop.prevent="!busy && (pushOpen = false)">
-        <h2 id="readme-push-title">提交并推送 README</h2><p>将当前全文提交到 <strong>{{ state.github.repository }}</strong> 的 <strong>{{ state.github.branch }}</strong> 分支。</p><p class="muted">作者：{{ pendingAuthor.name }} &lt;{{ pendingAuthor.email }}&gt;</p>
+        <h2 id="readme-push-title">提交并推送 README</h2><p>将当前文档提交到 <strong>{{ state.github.branch }}</strong> 分支。</p><p class="muted">作者：{{ pendingAuthor.name }} &lt;{{ pendingAuthor.email }}&gt;</p>
         <div class="field"><label for="readme-commit-message">提交说明</label><input id="readme-commit-message" ref="messageInput" v-model="message" maxlength="500" required :disabled="busy" /></div>
         <details class="readme-commit-preview"><summary>查看本次提交全文</summary><pre>{{ content }}</pre></details>
         <p v-if="error" class="error-text" role="alert">{{ error }}</p>

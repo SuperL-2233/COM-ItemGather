@@ -114,7 +114,7 @@ test('读我客户端编辑、目录和草稿按账号隔离，作者在设置�
   await expect(choice.getByRole('option', { name: '作者甲 · 123+author@users.noreply.github.com', exact: true })).toBeAttached()
 })
 
-test('远端冲突保留编辑内容，手动合并后再直推 main', async ({ page }) => {
+test('远端冲突保留编辑内容，手动合并后再直推 main', async ({ page }, testInfo) => {
   await login(page)
   let draft = { content: '# 游戏说明\n\n原版正文。\n', base_content: '# 游戏说明\n\n原版正文。\n', base_sha: 'base-sha', version: 1, updated_at: '2026-11-05T00:00:00Z', last_commit_url: '' }
   const remote = { content: '# 游戏说明\n\n其他成员更新。\n', sha: 'remote-sha' }
@@ -153,6 +153,7 @@ test('远端冲突保留编辑内容，手动合并后再直推 main', async ({ 
   await expect(textbox(page)).toBeVisible()
   await page.getByRole('combobox', { name: '提交作者', exact: true }).selectOption('author-b')
   await expect(page.getByRole('button', { name: '保存', exact: true })).toHaveText('保存')
+  await page.screenshot({ path: testInfo.outputPath('readme-layout-desktop.png'), fullPage: true })
   await appendText(page, '我新增的内容')
   await page.getByRole('button', { name: '提交推送', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '提交并推送 README', exact: true })).toContainText('main')
