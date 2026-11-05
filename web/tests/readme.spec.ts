@@ -76,6 +76,34 @@ for (const newline of ['\n', '\r\n']) {
   })
 }
 
+test('预览在段落、标题、表格、代码和 HTML 块之间逐行显示空行', async ({ page }, testInfo) => {
+  await login(page)
+  const blocks = [
+    { before: '前段', after: '后段', selector: '.cm-line', first: /^前段$/, last: /^后段$/ },
+    { before: '## 前标题', after: '## 后标题', selector: '.markdown-heading', first: /前标题/, last: /后标题/ },
+    { before: '| 前表 |\n|---|\n| 甲 |', after: '| 后表 |\n|---|\n| 乙 |', selector: '.markdown-rendered table', first: /前表/, last: /后表/ },
+    { before: '```txt\n前代码\n```', after: '```txt\n后代码\n```', selector: '.markdown-rendered pre', first: /前代码/, last: /后代码/ },
+    { before: '<div>前块</div>', after: '<div>后块</div>', selector: '.markdown-rendered', first: /前块/, last: /后块/ },
+  ]
+  for (const block of blocks) {
+    for (const blankLines of [1, 2, 3]) {
+      const original = block.before + '\n'.repeat(blankLines + 1) + block.after
+      await seedDraft(page, original)
+      await page.goto('/readme')
+      await expect(textbox(page)).toBeVisible()
+      const first = page.locator(block.selector).filter({ hasText: block.first })
+      const last = page.locator(block.selector).filter({ hasText: block.last })
+      await expect(first).toBeVisible()
+      await expect(last).toBeVisible()
+      const top = await first.boundingBox()
+      const bottom = await last.boundingBox()
+      const lineHeight = await page.locator('.cm-scroller').evaluate(element => parseFloat(getComputedStyle(element).lineHeight))
+      expect(bottom!.y - top!.y - top!.height, `${block.before}: ${blankLines} 个空行`).toBeGreaterThanOrEqual(blankLines * lineHeight - 1)
+      if (block.before === '前段' && blankLines === 2) await page.screenshot({ path: testInfo.outputPath('readme-two-blank-lines.png'), fullPage: true })
+    }
+  }
+})
+
 test('Markdown 正文填满编辑区域，长文末尾可见并可继续编辑', async ({ page }, testInfo) => {
   await login(page)
   await seedDraft(page, '# 编辑区域高度验收\n\n' + Array.from({ length: 60 }, (_, index) => `第 ${index + 1} 段：长文内容应正常滚动。\n\n`).join('') + '## 最后一章\n\n文档末尾标记\n')
