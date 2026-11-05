@@ -2,15 +2,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { api, ApiError, auth } from '../api'
+import { useEvents } from '../events'
 import MarkdownEditor from '../components/MarkdownEditor.vue'
 import { clearLocalReadme, currentOfflineScope, getLocalReadme, isOfflineScopeActive, saveLocalReadme } from '../offline'
 import type { LocalReadmeDraft, OfflineScope } from '../offline'
+import type { ReadmeAuthor, ReadmeAuthors } from '../types'
 import { formatDate, toast } from '../utils'
 import '../readme.css'
 
 interface Draft { content: string; base_content: string; base_sha: string; version: number; updated_at: string; last_commit_url: string }
-interface Author { name: string; email: string }
-interface State { draft: Draft; author: Author; github: { configured: boolean; repository: string; branch: string; path: string }; remote_error: string }
+interface State { draft: Draft; authors: ReadmeAuthor[]; selected_author_id: string; github: { configured: boolean; repository: string; branch: string; path: string }; remote_error: string }
 type Merge = { kind: 'remote'; content: string; sha: string } | { kind: 'draft'; content: string; version: number }
 
 const state = ref<State>()
@@ -19,9 +20,9 @@ const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 const editor = ref<InstanceType<typeof MarkdownEditor>>()
-const authorName = ref('')
-const authorEmail = ref('')
-const authorOpen = ref(false)
+const selectedAuthorID = ref('')
+const selectedAuthor = computed(() => state.value?.authors.find(author => author.id === selectedAuthorID.value))
+const pendingAuthor = ref<ReadmeAuthor>()
 const pushOpen = ref(false)
 const message = ref('docs: 更新游戏 README')
 const messageInput = ref<HTMLInputElement>()
@@ -35,6 +36,7 @@ let scope: OfflineScope | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 let pendingLocal: Promise<unknown> = Promise.resolve()
 let disposed = false
+let authorRequest = 0
 
 function readCurrent() { content.value = editor.value?.getValue() ?? content.value; return content.value }
 function applyDraft(draft: Draft, replace = true) {
@@ -71,6 +73,9 @@ function handleError(cause: unknown) {
     openMerge({ kind: 'remote', ...cause.details.remote }, candidate)
   } else if (cause instanceof ApiError && cause.code === 'readme_draft_conflict' && cause.details?.draft) {
     openMerge({ kind: 'draft', content: cause.details.draft.content, version: cause.details.draft.version }, candidate)
+  } else if (cause instanceof ApiError && ['readme_author_conflict', 'readme_author_unavailable'].includes(cause.code)) {
+    pushOpen.value = false; pendingAuthor.value = undefined
+    void refreshAuthors().catch(() => {})
   }
 }
 async function run(action: () => Promise<void>) {
@@ -84,7 +89,7 @@ async function load() {
     const result = await api<State>('/readme')
     if (disposed) return
     state.value = result; content.value = result.draft.content
-    authorName.value = result.author.name; authorEmail.value = result.author.email; authorOpen.value = !result.author.email
+    selectedAuthorID.value = result.selected_author_id
     error.value = result.remote_error
     scope = currentOfflineScope()
     try {
@@ -109,11 +114,26 @@ async function persistDraft(notify = true) {
   if (notify) toast('草稿已保存，尚未推送到 GitHub')
 }
 function save() { void run(() => persistDraft()) }
-function saveAuthor() {
+async function refreshAuthors() {
+  const request = ++authorRequest
+  const result = await api<ReadmeAuthors>('/readme/authors')
+  if (disposed || request !== authorRequest || !state.value) return
+  state.value.authors = result.items
+  state.value.selected_author_id = result.selected_author_id
+  if (!result.items.some(author => author.id === selectedAuthorID.value)) selectedAuthorID.value = ''
+}
+function onFocus() { if (!loading.value && state.value) void refreshAuthors().catch(() => {}) }
+function onVisibilityChange() { if (document.visibilityState === 'visible') onFocus() }
+useEvents(onFocus)
+function selectAuthor() {
+  const author = selectedAuthor.value
+  const previous = state.value?.selected_author_id || ''
+  ++authorRequest
   void run(async () => {
-    const author = await api<Author>('/readme/author', { method: 'PUT', body: JSON.stringify({ name: authorName.value, email: authorEmail.value }) })
-    if (state.value) state.value.author = author
-    authorOpen.value = false; toast('提交身份已保存')
+    try {
+      await api('/readme/author', { method: 'PUT', body: JSON.stringify({ author_id: author?.id || '', author_version: author?.version || 0 }) })
+      if (state.value) state.value.selected_author_id = author?.id || ''
+    } catch (cause) { selectedAuthorID.value = previous; throw cause }
   })
 }
 function updateRemote() {
@@ -131,16 +151,18 @@ function updateRemote() {
 }
 function preparePush() {
   readCurrent()
-  if (!state.value?.author.email) { authorOpen.value = true; error.value = '请先保存你的提交姓名和 GitHub 提交邮箱'; return }
+  const author = selectedAuthor.value
+  if (!state.value || !author) { error.value = '请先选择本次提交的作者，可在设置中新增作者'; return }
   if (!state.value.draft.base_sha) { error.value = '请先点击“读取远端”，读取 README 并合并草稿后再提交'; return }
-  error.value = ''; pushOpen.value = true
+  error.value = ''; pendingAuthor.value = { ...author }; pushOpen.value = true
   void nextTick(() => messageInput.value?.focus())
 }
 function push() {
   void run(async () => {
-    if (!state.value) return
+    if (!state.value || !pendingAuthor.value) return
+    const author = { ...pendingAuthor.value }
     await persistDraft(false)
-    const draft = await api<Draft>('/readme/push', { method: 'POST', body: JSON.stringify({ version: state.value.draft.version, message: message.value }) })
+    const draft = await api<Draft>('/readme/push', { method: 'POST', body: JSON.stringify({ version: state.value.draft.version, message: message.value, author_id: author.id, author_version: author.version }) })
     applyDraft(draft); await clearBackup(); pushOpen.value = false; toast('README 已提交并推送到 GitHub')
   })
 }
@@ -173,8 +195,8 @@ onBeforeRouteLeave(async () => {
   if (dirty.value) await backupLocal()
   return true
 })
-onMounted(() => { void load(); window.addEventListener('beforeunload', beforeUnload) })
-onBeforeUnmount(() => { disposed = true; clearTimeout(timer); window.removeEventListener('beforeunload', beforeUnload) })
+onMounted(() => { void load(); window.addEventListener('beforeunload', beforeUnload); window.addEventListener('focus', onFocus); document.addEventListener('visibilitychange', onVisibilityChange) })
+onBeforeUnmount(() => { disposed = true; clearTimeout(timer); window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibilityChange) })
 </script>
 
 <template>
@@ -190,19 +212,15 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); window.removeEvent
     <button v-else-if="!state" class="secondary" @click="load">重新加载</button>
     <template v-if="state && !loading">
       <div v-if="!state.github.configured" class="readme-notice">尚未连接游戏仓库。现在可以编辑和保存个人草稿，管理员完成 GitHub App 配置后即可读取和推送 README。</div>
-      <details class="readme-author panel" :open="authorOpen" @toggle="authorOpen = ($event.target as HTMLDetailsElement).open">
-        <summary>提交身份 <span v-if="state.author.email">{{ state.author.name }} · {{ state.author.email }}</span><span v-else>首次提交前设置</span></summary>
-        <form @submit.prevent="saveAuthor"><div class="field"><label for="readme-author-name">提交姓名</label><input id="readme-author-name" v-model="authorName" maxlength="100" required /></div><div class="field"><label for="readme-author-email">GitHub 提交邮箱</label><input id="readme-author-email" v-model="authorEmail" type="email" maxlength="254" placeholder="从 GitHub 的 Settings → Emails 复制" required /></div><button class="secondary" :disabled="busy">保存提交身份</button></form>
-        <p class="muted">使用 GitHub 账号关联的邮箱或专属 noreply 邮箱，提交作者会关联到你。由机器人代为推送，无需授权个人账号。</p>
-      </details>
+      <div class="readme-author-selection"><div class="field"><label for="readme-author-choice">提交作者</label><select id="readme-author-choice" v-model="selectedAuthorID" :disabled="busy || pushOpen || !state.authors.length" @change="selectAuthor"><option value="" disabled>{{ state.authors.length ? '选择本次提交的作者' : '请先在设置中添加作者' }}</option><option v-for="author in state.authors" :key="author.id" :value="author.id">{{ author.name }} · {{ author.email }}</option></select></div><RouterLink to="/settings?tab=readme-authors" target="_blank" rel="noopener noreferrer">管理作者 ↗</RouterLink><p>提交将署名为所选作者，由机器人代为推送。</p></div>
       <div class="readme-status" role="status"><span :class="{ 'readme-unsaved': dirty }">{{ dirty ? '有未保存的修改' : unpublished ? '草稿已保存 · 尚未推送' : state.draft.base_sha ? '与已读取的 GitHub 版本一致' : '个人草稿' }}</span><span v-if="state.draft.updated_at">保存于 {{ formatDate(state.draft.updated_at) }}</span><a v-if="state.draft.last_commit_url" :href="state.draft.last_commit_url" target="_blank" rel="noopener noreferrer">查看上次提交 ↗</a></div>
       <MarkdownEditor ref="editor" v-model="content" :disabled="busy" @save="save" @error="error = $event" />
       <p class="readme-footnote">“保存”保留你的个人草稿；“提交推送”会将修改发布到游戏仓库。其他成员的草稿互不覆盖。</p>
     </template>
 
-    <div v-if="pushOpen && state" class="modal-backdrop" @click.self="!busy && (pushOpen = false)">
+    <div v-if="pushOpen && state && pendingAuthor" class="modal-backdrop" @click.self="!busy && (pushOpen = false)">
       <form class="modal readme-push-modal" role="dialog" aria-modal="true" aria-labelledby="readme-push-title" @submit.prevent="push" @keydown.esc.stop.prevent="!busy && (pushOpen = false)">
-        <h2 id="readme-push-title">提交并推送 README</h2><p>将当前全文提交到 <strong>{{ state.github.repository }}</strong> 的 <strong>{{ state.github.branch }}</strong> 分支。</p><p class="muted">作者：{{ state.author.name }} &lt;{{ state.author.email }}&gt;</p>
+        <h2 id="readme-push-title">提交并推送 README</h2><p>将当前全文提交到 <strong>{{ state.github.repository }}</strong> 的 <strong>{{ state.github.branch }}</strong> 分支。</p><p class="muted">作者：{{ pendingAuthor.name }} &lt;{{ pendingAuthor.email }}&gt;</p>
         <div class="field"><label for="readme-commit-message">提交说明</label><input id="readme-commit-message" ref="messageInput" v-model="message" maxlength="500" required :disabled="busy" /></div>
         <details class="readme-commit-preview"><summary>查看本次提交全文</summary><pre>{{ content }}</pre></details>
         <p v-if="error" class="error-text" role="alert">{{ error }}</p>

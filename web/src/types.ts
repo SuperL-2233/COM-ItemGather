@@ -1,4 +1,6 @@
 export interface User { id: string; username: string; nickname: string; role: 'admin' | 'member'; status: string; created_at: string }
+export interface ReadmeAuthor { id: string; name: string; email: string; version: number; created_at: string; updated_at: string }
+export interface ReadmeAuthors { items: ReadmeAuthor[]; selected_author_id: string }
 export interface Attribute { id?: string; key: string; value: string; certainty: 'asserted' | 'tentative' | 'undecided' }
 export interface Attachment { id: string; idea_id?: string; product_id?: string; company_id?: string; original_name: string; mime_type: string; size: number; url: string; thumbnail_url?: string; created_at: string }
 export interface Link { item_kind?: 'product' | 'tool'; id: string; idea_id: string; product_id: string; status: 'candidate' | 'adopted' | 'rejected'; idea_title?: string; product_name?: string; created_at: string; updated_at: string }

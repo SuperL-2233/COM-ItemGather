@@ -123,7 +123,7 @@ npm run dev
 - **保存**：将当前用户的个人草稿保存在网站数据库；不会修改 GitHub，其他成员的草稿互不覆盖。未保存内容另有按账号、仓库及分支隔离的 IndexedDB 备份；刷新后可恢复，主动退出时清理该账号的本机备份。
 - **读取远端**：读取配置分支的根目录 `README.md`。已有未推送修改时先展示远端与当前草稿供手动合并，不会直接覆盖。
 - **提交推送**：先保存当前草稿，再用 GitHub App 安装令牌创建真实 commit 并直接更新目标分支。只提交 `README.md`，保留仓库其余文件，不使用强制推送。草稿版本及 GitHub 文件 SHA 双重检测冲突；失败时保留草稿。
-- **提交身份**：每个网站用户设置自己的提交姓名、GitHub 关联邮箱或其专属 `noreply` 邮箱。后端按当前登录用户读取作者资料，机器人负责执行请求，无需个人 OAuth、PAT 或 GitHub 密码。作者关联和贡献统计由 GitHub 按邮箱、分支及私有贡献设置决定。
+- **提交作者**：在“设置 → 提交作者”中新增、编辑或删除团队共享的作者姓名及 GitHub 关联邮箱／专属 `noreply` 邮箱。在“读我”的下拉框选择本次提交作者，每个登录账号独立记住自己的选择。确认窗口显示所选作者，后端校验作者 ID 和资料版本，资料变更或作者删除后需重新确认。机器人负责执行请求，无需个人 OAuth、PAT 或 GitHub 密码；网站审计仍记录实际操作人。已有个人作者资料升级时自动迁移到作者列表并保留选择，草稿不受影响。作者关联和贡献统计由 GitHub 按邮箱、分支及私有贡献设置决定。
 
 ### 管理员配置
 
@@ -143,7 +143,7 @@ README_GITHUB_PRIVATE_KEY_FILE=/etc/com-itemgather/github-app.pem
 
 App 私钥仅由后端读取；安装令牌只缓存在后端内存中，到期前自动重新获取。App 的 `Contents` 权限覆盖仓库内容，但网页 API 固定操作配置仓库、配置分支和根目录 `README.md`，不接受客户端指定任意仓库或文件。正文须为不超过 1 MiB 的 UTF-8 文本。README 的正文、个人作者资料和草稿均不会加入现有只读 MCP 工具。
 
-相关接口均要求网页登录；写入沿用 Session、CSRF 和账号切换保护：`GET/PUT /api/readme`、`GET /api/readme/remote`、`PUT /api/readme/author`、`POST /api/readme/refresh`、`POST /api/readme/rebase`、`POST /api/readme/push`。成功推送保留 commit 链接与实际网站操作人的审计记录。
+相关接口均要求网页登录；写入沿用 Session、CSRF 和账号切换保护：`GET/PUT /api/readme`、`GET /api/readme/remote`、`GET/POST /api/readme/authors`、`PATCH/DELETE /api/readme/authors/:id`、`PUT /api/readme/author`（保存当前账号的作者选择）、`POST /api/readme/refresh`、`POST /api/readme/rebase`、`POST /api/readme/push`（明确传入作者 ID 和资料版本）。成功推送保留 commit 链接与实际网站操作人的审计记录。
 
 ## AI 只读 MCP 接入
 

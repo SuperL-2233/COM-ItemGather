@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"net/mail"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -67,14 +66,14 @@ func (a *App) getReadme(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	author, err := a.loadReadmeAuthor(r.Context(), user)
+	authors, selected, err := a.readmeAuthors(r.Context(), user.ID)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	repository, branch := a.readmeScope()
 	writeJSON(w, 200, map[string]any{
-		"draft": draft, "author": author, "remote_error": remoteError,
+		"draft": draft, "authors": authors, "selected_author_id": selected, "remote_error": remoteError,
 		"github": map[string]any{"configured": a.readmeGitHub.configured(), "repository": repository, "branch": branch, "path": "README.md"},
 	})
 }
@@ -140,36 +139,6 @@ func (a *App) saveReadme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, draft)
-}
-
-func (a *App) loadReadmeAuthor(ctx context.Context, user User) (readmeAuthor, error) {
-	author := readmeAuthor{Name: user.Nickname}
-	err := a.db.QueryRowContext(ctx, "SELECT name,email FROM readme_authors WHERE user_id=?", user.ID).Scan(&author.Name, &author.Email)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = nil
-	}
-	return author, err
-}
-
-func (a *App) saveReadmeAuthor(w http.ResponseWriter, r *http.Request) {
-	var author readmeAuthor
-	if err := decodeBody(w, r, &author); err != nil {
-		writeError(w, err)
-		return
-	}
-	author.Name, author.Email = strings.TrimSpace(author.Name), strings.TrimSpace(author.Email)
-	address, err := mail.ParseAddress(author.Email)
-	if author.Name == "" || len([]rune(author.Name)) > 100 || strings.ContainsAny(author.Name+author.Email, "\r\n\x00") || len(author.Email) > 254 || err != nil || address.Address != author.Email {
-		writeError(w, fail(422, "validation", "请填写提交姓名和完整的 GitHub 提交邮箱，不要填写昵称或带显示名称的邮箱"))
-		return
-	}
-	_, err = a.db.ExecContext(r.Context(), `INSERT INTO readme_authors(user_id,name,email) VALUES(?,?,?)
-		ON CONFLICT(user_id) DO UPDATE SET name=excluded.name,email=excluded.email`, currentUser(r).ID, author.Name, author.Email)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, 200, author)
 }
 
 func (a *App) refreshReadme(w http.ResponseWriter, r *http.Request) {
@@ -243,8 +212,10 @@ func (a *App) rebaseReadme(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) pushReadme(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Version int    `json:"version"`
-		Message string `json:"message"`
+		Version       int    `json:"version"`
+		Message       string `json:"message"`
+		AuthorID      string `json:"author_id"`
+		AuthorVersion int    `json:"author_version"`
 	}
 	if err := decodeBody(w, r, &body); err != nil {
 		writeError(w, err)
@@ -265,12 +236,9 @@ func (a *App) pushReadme(w http.ResponseWriter, r *http.Request) {
 	if err == nil && draft.Content == draft.BaseContent {
 		err = fail(422, "readme_no_changes", "README 没有需要推送的修改")
 	}
-	var author readmeAuthor
+	var author readmeCommitAuthor
 	if err == nil {
-		author, err = a.loadReadmeAuthor(r.Context(), user)
-		if err == nil && author.Email == "" {
-			err = fail(422, "readme_author_required", "请先设置你的提交姓名和 GitHub 提交邮箱")
-		}
+		author, err = a.requireReadmeAuthor(r.Context(), body.AuthorID, body.AuthorVersion)
 	}
 	if err == nil {
 		var remote readmeRemote
@@ -282,7 +250,7 @@ func (a *App) pushReadme(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		var remote readmeRemote
 		var commitURL string
-		remote, commitURL, err = a.readmeGitHub.push(r.Context(), draft, author, body.Message)
+		remote, commitURL, err = a.readmeGitHub.push(r.Context(), draft, author.readmeAuthor, body.Message)
 		if conflict, ok := err.(*APIError); ok && conflict.Code == "readme_remote_conflict" {
 			if latest, readErr := a.readmeGitHub.read(r.Context()); readErr == nil {
 				err = readmeRemoteConflict(latest)

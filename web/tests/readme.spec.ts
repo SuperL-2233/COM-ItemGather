@@ -22,7 +22,7 @@ async function appendText(page: Page, value: string) {
   await page.keyboard.insertText(value)
 }
 
-test('读我位于公司和搜索之间，客户端即时编辑、目录、保存与身份按账号隔离', async ({ page }, testInfo) => {
+test('读我客户端编辑、目录和草稿按账号隔离，作者在设置维护并通过下拉选择', async ({ page }, testInfo) => {
   await login(page)
   await seedDraft(page, '# 游戏编辑验收\n\n## 世界观\n\n这是 **游戏设定**。\n\n' + Array.from({ length: 20 }, (_, index) => `世界观段落 ${index}。\n\n`).join('') + '## 操作说明\n\n- 移动\n- 交互\n\n```go\nfmt.Println("hello")\n```\n')
   const externalRequests: string[] = []
@@ -48,12 +48,25 @@ test('读我位于公司和搜索之间，客户端即时编辑、目录、保�
   await expect(page.getByRole('status').filter({ hasText: '草稿已保存，尚未推送到 GitHub' })).toBeVisible()
   const saved = await (await page.request.get('/api/readme')).json()
   expect(saved.draft.content).toContain('末尾输入也必须完整保存')
-  await page.getByLabel('提交姓名', { exact: true }).fill('作者甲')
-  await page.getByLabel('GitHub 提交邮箱', { exact: true }).fill('123+author@users.noreply.github.com')
-  await page.getByRole('button', { name: '保存提交身份', exact: true }).click()
+  const popup = page.waitForEvent('popup')
+  await page.getByRole('link', { name: '管理作者 ↗', exact: true }).click()
+  const settings = await popup
+  await expect(settings).toHaveURL(/\/settings\?tab=readme-authors$/)
+  for (const [name, email] of [['作者甲', '123+author@users.noreply.github.com'], ['作者乙', '456+coauthor@users.noreply.github.com']]) {
+    await settings.getByLabel('作者姓名', { exact: true }).fill(name)
+    await settings.getByLabel('GitHub 提交邮箱', { exact: true }).fill(email)
+    await settings.getByRole('button', { name: '添加作者', exact: true }).click()
+    await expect(settings.getByRole('listitem').filter({ hasText: email })).toBeVisible()
+  }
+  await settings.close()
+  await page.bringToFront()
+  const choice = page.getByRole('combobox', { name: '提交作者', exact: true })
+  await expect(choice.getByRole('option', { name: '作者乙 · 456+coauthor@users.noreply.github.com', exact: true })).toBeAttached()
+  await choice.selectOption({ label: '作者乙 · 456+coauthor@users.noreply.github.com' })
+  await expect(page.getByRole('button', { name: '保存', exact: true })).toHaveText('保存')
   await page.reload()
   await expect(textbox(page)).toContainText('末尾输入也必须完整保存')
-  await expect(page.locator('.readme-author summary')).toContainText('123+author@users.noreply.github.com')
+  await expect(choice.locator('option:checked')).toHaveText('作者乙 · 456+coauthor@users.noreply.github.com')
   expect(externalRequests).toEqual([])
 
   await page.getByRole('button', { name: '退出', exact: true }).click()
@@ -63,21 +76,28 @@ test('读我位于公司和搜索之间，客户端即时编辑、目录、保�
   await expect(page).toHaveURL(/\/ideas$/)
   await page.goto('/readme')
   await expect(textbox(page)).not.toContainText('末尾输入也必须完整保存')
-  await expect(page.getByLabel('GitHub 提交邮箱', { exact: true })).toHaveValue('')
+  await expect(choice).toHaveValue('')
+  await expect(choice.getByRole('option', { name: '作者甲 · 123+author@users.noreply.github.com', exact: true })).toBeAttached()
 })
 
 test('远端冲突保留编辑内容，手动合并后再直推 main', async ({ page }) => {
   await login(page)
   let draft = { content: '# 游戏说明\n\n原版正文。\n', base_content: '# 游戏说明\n\n原版正文。\n', base_sha: 'base-sha', version: 1, updated_at: '2026-11-05T00:00:00Z', last_commit_url: '' }
   const remote = { content: '# 游戏说明\n\n其他成员更新。\n', sha: 'remote-sha' }
+  const authors = [{ id: 'author-a', name: '作者甲', email: '123+author@users.noreply.github.com', version: 1 }, { id: 'author-b', name: '作者乙', email: '456+coauthor@users.noreply.github.com', version: 2 }]
+  let selectedAuthorID = authors[0].id
   let pushes = 0
-  await page.route(/\/api\/readme(?:\/(?:push|rebase))?$/, async route => {
+  await page.route(/\/api\/readme(?:\/(?:push|rebase|author|authors))?$/, async route => {
     const request = route.request()
     const pathname = new URL(request.url()).pathname
     const body = request.method() === 'GET' ? undefined : request.postDataJSON()
+    if (pathname.endsWith('/authors')) { await route.fulfill({ json: { items: authors, selected_author_id: selectedAuthorID } }); return }
+    if (pathname.endsWith('/author')) { selectedAuthorID = body.author_id; await route.fulfill({ json: { selected_author_id: selectedAuthorID } }); return }
     if (pathname.endsWith('/push')) {
       pushes++
       expect(body.version).toBe(draft.version)
+      expect(body.author_id).toBe('author-b')
+      expect(body.author_version).toBe(2)
       if (pushes === 1) { await route.fulfill({ status: 409, json: { error: { code: 'readme_remote_conflict', message: '远端已更新，草稿已保留', details: { remote } } } }); return }
       draft = { ...draft, base_content: draft.content, base_sha: 'pushed-sha', version: draft.version + 1, last_commit_url: 'https://github.com/SuperL-2233/CallOfMommy/commit/aaaaaaaa' }
       await route.fulfill({ json: draft }); return
@@ -93,13 +113,16 @@ test('远端冲突保留编辑内容，手动合并后再直推 main', async ({ 
       draft = { ...draft, content: body.content, version: draft.version + 1 }
       await route.fulfill({ json: draft }); return
     }
-    await route.fulfill({ json: { draft, author: { name: '作者甲', email: '123+author@users.noreply.github.com' }, github: { configured: true, repository: 'SuperL-2233/CallOfMommy', branch: 'main', path: 'README.md' }, remote_error: '' } })
+    await route.fulfill({ json: { draft, authors, selected_author_id: selectedAuthorID, github: { configured: true, repository: 'SuperL-2233/CallOfMommy', branch: 'main', path: 'README.md' }, remote_error: '' } })
   })
   await page.goto('/readme')
   await expect(textbox(page)).toBeVisible()
+  await page.getByRole('combobox', { name: '提交作者', exact: true }).selectOption('author-b')
+  await expect(page.getByRole('button', { name: '保存', exact: true })).toHaveText('保存')
   await appendText(page, '我新增的内容')
   await page.getByRole('button', { name: '提交推送', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '提交并推送 README', exact: true })).toContainText('main')
+  await expect(page.getByRole('dialog', { name: '提交并推送 README', exact: true })).toContainText('456+coauthor@users.noreply.github.com')
   await page.getByRole('button', { name: '确认提交推送', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '比较远端并合并', exact: true })).toBeVisible()
   await expect(page.getByLabel('GitHub 最新版本', { exact: true })).toHaveValue(remote.content)
@@ -113,6 +136,42 @@ test('远端冲突保留编辑内容，手动合并后再直推 main', async ({ 
   await expect(page.getByRole('link', { name: '查看上次提交 ↗', exact: true })).toHaveAttribute('href', /github.com\/SuperL-2233\/CallOfMommy\/commit\//)
   await expect(page.getByRole('button', { name: '提交推送', exact: true })).toBeDisabled()
   expect(pushes).toBe(2)
+})
+
+test('设置中可编辑删除作者，读我同步更新选项且删除后不会自动换用其他作者', async ({ page }) => {
+  await login(page)
+  const { csrf_token } = await (await page.request.get('/api/auth/me')).json()
+  const retained = await page.request.post('/api/readme/authors', { headers: { 'X-CSRF-Token': csrf_token }, data: { name: '保留作者管理验收', email: 'retained-author@example.com' } })
+  expect(retained.ok()).toBeTruthy()
+  const remaining = (await (await page.request.get('/api/readme/authors')).json()).items.length
+  const response = await page.request.post('/api/readme/authors', { headers: { 'X-CSRF-Token': csrf_token }, data: { name: '作者管理验收', email: 'manage-author@example.com' } })
+  expect(response.ok()).toBeTruthy()
+  const author = await response.json()
+  const selected = await page.request.put('/api/readme/author', { headers: { 'X-CSRF-Token': csrf_token }, data: { author_id: author.id, author_version: author.version } })
+  expect(selected.ok()).toBeTruthy()
+  await page.goto('/readme')
+  const choice = page.getByRole('combobox', { name: '提交作者', exact: true })
+  await expect(choice).toHaveValue(author.id)
+  const popup = page.waitForEvent('popup')
+  await page.getByRole('link', { name: '管理作者 ↗', exact: true }).click()
+  const settings = await popup
+  await settings.getByRole('button', { name: '编辑作者 作者管理验收', exact: true }).click()
+  await settings.getByLabel('作者姓名', { exact: true }).fill('作者管理验收更新')
+  await settings.getByLabel('GitHub 提交邮箱', { exact: true }).fill('managed-updated@example.com')
+  await settings.getByRole('button', { name: '保存作者', exact: true }).click()
+  await expect(settings.getByRole('listitem').filter({ hasText: '作者管理验收更新' })).toContainText('managed-updated@example.com')
+  await page.bringToFront()
+  await expect(choice.locator('option:checked')).toHaveText('作者管理验收更新 · managed-updated@example.com')
+  await settings.bringToFront()
+  settings.once('dialog', dialog => dialog.accept())
+  await settings.getByRole('button', { name: '删除作者 作者管理验收更新', exact: true }).click()
+  await expect(settings.getByRole('listitem').filter({ hasText: 'managed-updated@example.com' })).toHaveCount(0)
+  await settings.close()
+  await page.bringToFront()
+  await expect(choice).toHaveValue('')
+  await expect(choice.locator('option')).toHaveCount(remaining + 1)
+  await page.reload()
+  await expect(choice).toHaveValue('')
 })
 
 test('移动端目录可展开，HTML 被过滤，未保存内容可在刷新后恢复', async ({ page }, testInfo) => {

@@ -23,9 +23,10 @@ import (
 )
 
 type readmeTestState struct {
-	Draft  readmeDraft  `json:"draft"`
-	Author readmeAuthor `json:"author"`
-	GitHub struct {
+	Draft            readmeDraft          `json:"draft"`
+	Authors          []readmeCommitAuthor `json:"authors"`
+	SelectedAuthorID string               `json:"selected_author_id"`
+	GitHub           struct {
 		Configured bool `json:"configured"`
 	} `json:"github"`
 }
@@ -167,9 +168,16 @@ func saveTestReadme(t *testing.T, client *testClient, version int, content strin
 	return decodeTestJSON[readmeDraft](t, data)
 }
 
-func setTestReadmeAuthor(t *testing.T, client *testClient, name, email string) {
+func createTestReadmeAuthor(t *testing.T, client *testClient, name, email string) readmeCommitAuthor {
 	t.Helper()
-	status, data := client.request(t, "PUT", "/api/readme/author", map[string]string{"name": name, "email": email})
+	status, data := client.request(t, "POST", "/api/readme/authors", map[string]string{"name": name, "email": email})
+	assertStatus(t, status, 201, data)
+	return decodeTestJSON[readmeCommitAuthor](t, data)
+}
+
+func selectTestReadmeAuthor(t *testing.T, client *testClient, author readmeCommitAuthor) {
+	t.Helper()
+	status, data := client.request(t, "PUT", "/api/readme/author", map[string]any{"author_id": author.ID, "author_version": author.Version})
 	assertStatus(t, status, 200, data)
 }
 
@@ -180,7 +188,7 @@ func TestReadmeDraftIsolationVersioningAndAuthentication(t *testing.T) {
 	member := newTestClient(t, environment.server)
 	member.login(t, "reader", "correct-horse-42")
 	anonymous := newTestClient(t, environment.server)
-	for _, path := range []string{"/api/readme", "/api/readme/remote"} {
+	for _, path := range []string{"/api/readme", "/api/readme/remote", "/api/readme/authors"} {
 		status, data := anonymous.request(t, "GET", path, nil)
 		assertStatus(t, status, 401, data)
 	}
@@ -216,10 +224,12 @@ func TestReadmeAppPushUsesHumanAuthorAndPreservesConflicts(t *testing.T) {
 	if first.Draft.BaseSHA == "" || first.Draft.Content != second.Draft.Content || !first.GitHub.Configured {
 		t.Fatal("README was not loaded from GitHub")
 	}
-	setTestReadmeAuthor(t, admin, "主创", "123+creator@users.noreply.github.com")
-	setTestReadmeAuthor(t, member, "成员", "456+writer@users.noreply.github.com")
+	mainAuthor := createTestReadmeAuthor(t, admin, "主创", "123+creator@users.noreply.github.com")
+	memberAuthor := createTestReadmeAuthor(t, member, "成员", "456+writer@users.noreply.github.com")
+	selectTestReadmeAuthor(t, admin, memberAuthor)
+	selectTestReadmeAuthor(t, member, mainAuthor)
 	draft := saveTestReadme(t, admin, first.Draft.Version, first.Draft.Content+"\n主创修改。\n")
-	status, data := admin.request(t, "POST", "/api/readme/push", map[string]any{"version": draft.Version, "message": "docs: 主创更新"})
+	status, data := admin.request(t, "POST", "/api/readme/push", map[string]any{"version": draft.Version, "message": "docs: 主创更新", "author_id": mainAuthor.ID, "author_version": mainAuthor.Version})
 	assertStatus(t, status, 200, data)
 	pushed := decodeTestJSON[readmeDraft](t, data)
 	if pushed.BaseContent != draft.Content || pushed.BaseSHA == first.Draft.BaseSHA || !strings.HasPrefix(pushed.LastCommitURL, "https://github.com/SuperL-2233/CallOfMommy/commit/") {
@@ -235,7 +245,7 @@ func TestReadmeAppPushUsesHumanAuthorAndPreservesConflicts(t *testing.T) {
 		t.Fatal("human actor was not audited")
 	}
 	memberDraft := saveTestReadme(t, member, second.Draft.Version, second.Draft.Content+"\n成员修改。\n")
-	status, data = member.request(t, "POST", "/api/readme/push", map[string]any{"version": memberDraft.Version, "message": "docs: 成员更新"})
+	status, data = member.request(t, "POST", "/api/readme/push", map[string]any{"version": memberDraft.Version, "message": "docs: 成员更新", "author_id": memberAuthor.ID, "author_version": memberAuthor.Version})
 	assertStatus(t, status, 409, data)
 	if testError(t, data) != "readme_remote_conflict" || readReadme(t, member).Draft.Content != memberDraft.Content {
 		t.Fatal("remote conflict did not preserve personal draft")
@@ -248,7 +258,7 @@ func TestReadmeAppPushUsesHumanAuthorAndPreservesConflicts(t *testing.T) {
 	status, data = member.request(t, "POST", "/api/readme/rebase", map[string]any{"version": memberDraft.Version, "remote_sha": pushed.BaseSHA, "content": merged})
 	assertStatus(t, status, 200, data)
 	memberDraft = decodeTestJSON[readmeDraft](t, data)
-	status, data = member.request(t, "POST", "/api/readme/push", map[string]any{"version": memberDraft.Version, "message": "docs: 合并成员修改"})
+	status, data = member.request(t, "POST", "/api/readme/push", map[string]any{"version": memberDraft.Version, "message": "docs: 合并成员修改", "author_id": memberAuthor.ID, "author_version": memberAuthor.Version})
 	assertStatus(t, status, 200, data)
 	mock.mu.Lock()
 	if mock.content != merged || mock.pushes != 2 || mock.lastAuthor.Email != "456+writer@users.noreply.github.com" {
@@ -263,7 +273,7 @@ func TestReadmeRejectsInvalidAuthorsAndRetainsRejectedPush(t *testing.T) {
 	admin := newAdminClient(t, environment)
 	initial := readReadme(t, admin)
 	for _, email := range []string{"nickname", "Name <name@example.com>", "name@example.com\nInjected: bad"} {
-		status, data := admin.request(t, "PUT", "/api/readme/author", map[string]string{"name": "成员", "email": email})
+		status, data := admin.request(t, "POST", "/api/readme/authors", map[string]string{"name": "成员", "email": email})
 		assertStatus(t, status, 422, data)
 	}
 	draft := saveTestReadme(t, admin, initial.Draft.Version, "# 更新内容\n")
@@ -272,11 +282,11 @@ func TestReadmeRejectsInvalidAuthorsAndRetainsRejectedPush(t *testing.T) {
 	if testError(t, data) != "readme_author_required" {
 		t.Fatal("push should require an explicit human author")
 	}
-	setTestReadmeAuthor(t, admin, "成员", "author@example.com")
+	author := createTestReadmeAuthor(t, admin, "成员", "author@example.com")
 	mock.mu.Lock()
 	mock.reject = true
 	mock.mu.Unlock()
-	status, data = admin.request(t, "POST", "/api/readme/push", map[string]any{"version": draft.Version, "message": "update"})
+	status, data = admin.request(t, "POST", "/api/readme/push", map[string]any{"version": draft.Version, "message": "update", "author_id": author.ID, "author_version": author.Version})
 	assertStatus(t, status, 502, data)
 	if strings.Contains(string(data), "secret diagnostic") || strings.Contains(string(data), "mock-installation-token") {
 		t.Fatal("upstream diagnostics or credentials leaked")
