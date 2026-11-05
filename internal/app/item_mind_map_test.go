@@ -27,7 +27,7 @@ func TestItemMindMapAuthenticationAndEmptySnapshot(t *testing.T) {
 	}
 }
 
-func TestItemMindMapIncludesAllKindsAndCurrentSharedStatuses(t *testing.T) {
+func TestItemMindMapIncludesOnlyProductsAndCurrentSharedStatuses(t *testing.T) {
 	env := newTestEnvironment(t, nil)
 	c := newAdminClient(t, env)
 	company := catalogCompany(t, c, "浮泡饮料")
@@ -41,7 +41,7 @@ func TestItemMindMapIncludesAllKindsAndCurrentSharedStatuses(t *testing.T) {
 	other := catalogItem(t, c, "other-items", "旧钥匙", nil)
 	loose := catalogItem(t, c, "products", "", map[string]any{"english_name": "Loose Item"})
 	trashed := catalogItem(t, c, "products", "回收站商品", map[string]any{"company_id": company.ID})
-	oldItem := catalogItem(t, c, "tools", "旧公司道具", nil)
+	oldItem := catalogItem(t, c, "products", "旧公司商品", nil)
 	status, data = c.request(t, "DELETE", "/api/products/"+trashed.ID, map[string]int{"version": trashed.Version})
 	assertStatus(t, status, 200, data)
 	status, data = c.request(t, "DELETE", "/api/companies/"+archived.ID, map[string]int{"version": archived.Version})
@@ -52,7 +52,7 @@ func TestItemMindMapIncludesAllKindsAndCurrentSharedStatuses(t *testing.T) {
 	}
 
 	graph := readTestMindMap(t, c)
-	if len(graph.Companies) != 2 || len(graph.Items) != 5 || len(graph.Statuses) != 5 {
+	if len(graph.Companies) != 2 || len(graph.Items) != 3 || len(graph.Statuses) != 5 {
 		t.Fatalf("snapshot omitted active records or included trash: %+v", graph)
 	}
 	for _, id := range []string{company.ID, empty.ID} {
@@ -67,8 +67,13 @@ func TestItemMindMapIncludesAllKindsAndCurrentSharedStatuses(t *testing.T) {
 	if got := byID[goods.ID]; got.CompanyID != company.ID || got.ItemKind != "product" || got.EnglishName != "Color" || got.Category != "饮料" || got.DevelopmentStatus != custom.Value || got.DevelopmentStatusLabel != "待验收" || got.DevelopmentStatusColor != "#123abc" {
 		t.Fatalf("product or custom status is incomplete: %+v", got)
 	}
-	if byID[tool.ID].ItemKind != "tool" || byID[tool.ID].DevelopmentStatusLabel != "已完成" || byID[other.ID].ItemKind != "other" || byID[other.ID].CompanyID != "" || byID[loose.ID].EnglishName != "Loose Item" || !byID[oldItem.ID].CompanyDeleted {
-		t.Fatalf("tool, unassigned or archived-company record is incomplete: %+v", graph.Items)
+	for _, excluded := range []Product{tool, other, trashed} {
+		if _, exists := byID[excluded.ID]; exists {
+			t.Fatalf("non-product or trashed item was included: %+v", excluded)
+		}
+	}
+	if byID[loose.ID].EnglishName != "Loose Item" || !byID[oldItem.ID].CompanyDeleted {
+		t.Fatalf("unassigned or archived-company record is incomplete: %+v", graph.Items)
 	}
 	// Option changes do not increment product versions, so the graph must join
 	// the current status table instead of reusing a saved item snapshot.

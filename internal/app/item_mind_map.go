@@ -55,7 +55,7 @@ func loadMindMapItems(ctx context.Context, q querier) ([]mindMapItem, error) {
 		COALESCE(s.name,p.development_status),COALESCE(s.color,'#7c3aed')
 		FROM products p LEFT JOIN companies c ON c.id=p.company_id
 		LEFT JOIN product_statuses s ON s.id=COALESCE(p.status_option_id,p.development_status)
-		WHERE p.deleted_at IS NULL
+		WHERE p.item_kind='product' AND p.deleted_at IS NULL
 		ORDER BY COALESCE(NULLIF(p.chinese_name,''),p.english_name) COLLATE ZH_PINYIN,p.id`)
 	if err != nil {
 		return nil, err

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { useLiveSearch } from '../composables/useLiveSearch'
+import { useMindMapViewport } from '../composables/mindMapViewport'
 import { useEvents } from '../events'
-import type { ItemKind, ItemMindMap, MindMapCompany, MindMapItem } from '../types'
-import { companyTitle, itemLabel, itemPath, productTitle } from '../utils'
+import type { ItemMindMap, MindMapCompany, MindMapItem } from '../types'
+import { companyTitle, itemPath, productTitle } from '../utils'
 import StatusBadge from '../components/StatusBadge.vue'
 
 type Branch = { id: string; title: string; company?: MindMapCompany; items: MindMapItem[]; total: number }
@@ -15,11 +16,10 @@ const snapshot = ref<ItemMindMap>({ companies: [], items: [], statuses: [] })
 const ready = ref(false)
 const query = ref('')
 const companyID = ref('')
-const kind = ref<ItemKind | ''>('')
+const category = ref<string | null>(null)
 const status = ref('')
 const collapsed = ref(new Set<string>())
-const viewport = ref<HTMLDivElement>()
-const zoom = ref(1)
+const { viewport, zoom, dragging, setZoom, resetView, wheel, startDrag, moveDrag, endDrag, startTouch, moveTouch, endTouch, cancelTouch, guardClick } = useMindMapViewport(canvasWidth)
 const online = ref(navigator.onLine)
 const lastSync = ref('')
 let fallbackTimer: ReturnType<typeof setInterval> | undefined
@@ -32,6 +32,7 @@ const { loading, error, run: load, refresh } = useLiveSearch(
     lastSync.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     if (companyID.value && companyID.value !== unassigned && !result.companies.some(company => company.id === companyID.value)) companyID.value = ''
     if (status.value && !result.statuses.some(option => option.value === status.value)) status.value = ''
+    if (category.value !== null && !result.items.some(item => item.category === category.value)) category.value = null
     const ids = new Set([unassigned, ...result.companies.map(company => company.id)])
     collapsed.value = new Set([...collapsed.value].filter(id => ids.has(id)))
   },
@@ -50,6 +51,7 @@ const allBranches = computed(() => {
   return branches
 })
 
+const categories = computed(() => [...new Set(snapshot.value.items.map(item => item.category))].sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true })))
 const filtered = computed(() => {
   const term = query.value.trim().toLocaleLowerCase()
   const matches = (values: string[]) => values.some(value => value.toLocaleLowerCase().includes(term))
@@ -57,16 +59,16 @@ const filtered = computed(() => {
     if (companyID.value && branch.id !== companyID.value) return []
     const companyMatches = !term || matches([branch.title, branch.company?.english_name || '', branch.company?.aliases || ''])
     const items = branch.items.filter(item =>
-      (!kind.value || item.item_kind === kind.value) &&
+      (category.value === null || item.category === category.value) &&
       (!status.value || item.development_status === status.value) &&
       (companyMatches || matches([item.chinese_name, item.english_name, item.category])),
     )
-    if (!items.length && (kind.value || status.value || !companyMatches || (term && branch.items.length))) return []
+    if (!items.length && (category.value !== null || status.value || !companyMatches || (term && branch.items.length))) return []
     return [{ ...branch, items }]
   })
 })
 const itemCount = computed(() => filtered.value.reduce((total, branch) => total + branch.items.length, 0))
-const hasFilters = computed(() => !!(query.value || companyID.value || kind.value || status.value))
+const hasFilters = computed(() => !!(query.value || companyID.value || category.value !== null || status.value))
 const allCollapsed = computed(() => filtered.value.filter(branch => branch.items.length).every(branch => collapsed.value.has(branch.id)))
 const layout = computed(() => {
   let top = 32
@@ -92,54 +94,14 @@ function toggleAll() {
     else collapsed.value.delete(branch.id)
   }
 }
-function clearFilters() { query.value = ''; companyID.value = ''; kind.value = ''; status.value = '' }
+function clearFilters() { query.value = ''; companyID.value = ''; category.value = null; status.value = '' }
 function rootEdge(top: number) { return `M 224 79 H 264 V ${top + 47} H 304` }
 function itemEdge(top: number, index: number) { return `M 552 ${top + 47} H 596 V ${top + index * rowHeight + 47} H 640` }
 
-async function setZoom(value: number, x?: number, y?: number) {
-  const element = viewport.value
-  if (!element) return
-  const next = Math.max(.25, Math.min(1.75, value))
-  const anchorX = x ?? element.clientWidth / 2
-  const anchorY = y ?? element.clientHeight / 2
-  const left = (element.scrollLeft + anchorX) / zoom.value
-  const top = (element.scrollTop + anchorY) / zoom.value
-  zoom.value = next
-  await nextTick()
-  element.scrollLeft = left * next - anchorX
-  element.scrollTop = top * next - anchorY
-}
-async function resetView(fit = false) {
-  zoom.value = fit && viewport.value ? Math.min(1, viewport.value.clientWidth / canvasWidth) : 1
-  await nextTick()
-  viewport.value?.scrollTo({ left: 0, top: 0 })
-}
-function wheel(event: WheelEvent) {
-  if (!event.ctrlKey && !event.metaKey) return
-  event.preventDefault()
-  const bounds = viewport.value!.getBoundingClientRect()
-  void setZoom(zoom.value + (event.deltaY < 0 ? .1 : -.1), event.clientX - bounds.left, event.clientY - bounds.top)
-}
-const dragging = ref(false)
-let drag: { id: number; x: number; y: number; left: number; top: number } | undefined
-function startDrag(event: PointerEvent) {
-  if (event.button !== 0 || event.pointerType !== 'mouse' || (event.target as Element).closest('a, button')) return
-  const element = viewport.value!
-  drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop }
-  dragging.value = true
-  element.setPointerCapture(event.pointerId)
-  event.preventDefault()
-}
-function moveDrag(event: PointerEvent) {
-  if (!drag || drag.id !== event.pointerId) return
-  viewport.value!.scrollLeft = drag.left + drag.x - event.clientX
-  viewport.value!.scrollTop = drag.top + drag.y - event.clientY
-}
-function endDrag() { drag = undefined; dragging.value = false }
 function refreshVisible() { if (!document.hidden && !loading.value && online.value) void load() }
 function networkChanged() { online.value = navigator.onLine; if (online.value) refreshVisible() }
 
-watch([query, companyID, kind, status], () => { viewport.value?.scrollTo({ left: 0, top: 0 }) })
+watch([query, companyID, category, status], () => { viewport.value?.scrollTo({ left: 0, top: 0 }) })
 watch(query, value => { if (value.trim()) collapsed.value.clear() })
 onMounted(() => {
   void load()
@@ -166,26 +128,26 @@ useEvents(refresh)
     <div class="page-heading mind-map-heading">
       <div>
         <h2 id="mind-map-title">思维导图</h2>
-        <p>从公司看到旗下物品，随时掌握制作状态。点击节点名称可查看或编辑详情。</p>
+        <p>从公司看到旗下商品，用边框颜色掌握制作状态。点击节点名称可查看或编辑详情。</p>
       </div>
       <span class="mind-map-sync" :class="{ 'sync-error': !!error || !online }" role="status"><span aria-hidden="true"></span>{{ syncLabel }}</span>
     </div>
 
     <form class="mind-map-filters" aria-label="导图筛选" @submit.prevent>
-      <label class="mind-map-search">搜索<input v-model="query" type="search" aria-label="搜索导图" placeholder="公司、别名、物品名称或分类" /></label>
-      <label>所属公司<select v-model="companyID" aria-label="导图所属公司"><option value="">全部公司与未归属物品</option><option v-for="company in snapshot.companies" :key="company.id" :value="company.id">{{ companyTitle(company) }}</option><option :value="unassigned">未归属公司</option></select></label>
-      <label>物品类型<select v-model="kind" aria-label="导图物品类型"><option value="">全部类型</option><option value="product">商品</option><option value="tool">道具</option><option value="other">其他物品</option></select></label>
+      <label class="mind-map-search">搜索<input v-model="query" type="search" aria-label="搜索导图" placeholder="公司、别名、商品名称或商品分类" /></label>
+      <label>所属公司<select v-model="companyID" aria-label="导图所属公司"><option value="">全部公司与未归属商品</option><option v-for="company in snapshot.companies" :key="company.id" :value="company.id">{{ companyTitle(company) }}</option><option :value="unassigned">未归属公司</option></select></label>
+      <label>商品分类<select v-model="category" aria-label="导图商品分类"><option :value="null">全部商品分类</option><option v-for="value in categories" :key="value" :value="value">{{ value || '未分类' }}</option></select></label>
       <label>制作状态<select v-model="status" aria-label="导图制作状态"><option value="">全部状态</option><option v-for="option in snapshot.statuses" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
       <button v-if="hasFilters" type="button" class="text-button" @click="clearFilters">清除筛选</button>
     </form>
 
     <p v-if="error" class="error-text mind-map-error" role="alert">{{ ready ? '自动同步失败，当前保留上次成功读取的导图。' : '导图读取失败。' }}{{ error }} <button class="button-link" @click="load">重试</button></p>
-    <div v-if="!ready && loading" class="empty-state" aria-busy="true">正在读取公司与物品关系…</div>
-    <div v-else-if="ready && !snapshot.companies.length && !snapshot.items.length" class="empty-state">还没有公司或物品。<RouterLink to="/companies">创建公司</RouterLink>或<RouterLink to="/products">添加物品</RouterLink>后，这里会自动生成导图。</div>
+    <div v-if="!ready && loading" class="empty-state" aria-busy="true">正在读取公司与商品关系…</div>
+    <div v-else-if="ready && !snapshot.companies.length && !snapshot.items.length" class="empty-state">还没有公司或商品。<RouterLink to="/companies">创建公司</RouterLink>或<RouterLink to="/products">添加商品</RouterLink>后，这里会自动生成导图。</div>
     <template v-else-if="ready">
       <div class="mind-map-board">
         <div class="mind-map-controls">
-          <span class="mind-map-count">{{ itemCount }} 件物品 · {{ filtered.length }} 个分支<span v-if="hasFilters">（已筛选）</span></span>
+          <span class="mind-map-count">{{ itemCount }} 件商品 · {{ filtered.length }} 个分支<span v-if="hasFilters">（已筛选）</span></span>
           <div class="mind-map-buttons" role="group" aria-label="导图视图控制">
             <button type="button" class="secondary small" :disabled="!itemCount" @click="toggleAll">{{ allCollapsed ? '全部展开' : '全部折叠' }}</button>
             <button type="button" class="secondary small zoom-button" aria-label="缩小导图" :disabled="zoom <= .25" @click="setZoom(zoom - .15)">−</button>
@@ -195,20 +157,20 @@ useEvents(refresh)
             <button type="button" class="text-button" @click="resetView()">重置视图</button>
           </div>
         </div>
-        <div v-if="!filtered.length" class="empty-state">没有符合条件的公司或物品。<button class="button-link" @click="clearFilters">清除筛选</button></div>
-        <div v-else ref="viewport" class="mind-map-viewport" :class="{ dragging }" tabindex="0" role="region" aria-label="公司与物品思维导图" aria-describedby="mind-map-help" @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @wheel="wheel">
+        <div v-if="!filtered.length" class="empty-state">没有符合条件的公司或商品。<button class="button-link" @click="clearFilters">清除筛选</button></div>
+        <div v-else ref="viewport" class="mind-map-viewport" :class="{ dragging }" tabindex="0" role="region" aria-label="公司与商品思维导图" aria-describedby="mind-map-help" @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @wheel="wheel" @touchstart="startTouch" @touchmove="moveTouch" @touchend="endTouch" @touchcancel="cancelTouch" @click.capture="guardClick">
           <div class="mind-map-stage" :style="{ width: `${canvasWidth * zoom}px`, height: `${layout.height * zoom}px` }">
             <div class="mind-map-canvas" :style="{ width: `${canvasWidth}px`, height: `${layout.height}px`, transform: `scale(${zoom})` }">
               <svg class="mind-map-edges" :width="canvasWidth" :height="layout.height" aria-hidden="true">
                 <g v-for="branch in layout.branches" :key="branch.id">
                   <path :d="rootEdge(branch.top)" class="company-edge" />
-                  <template v-if="!branch.folded"><path v-for="(item, index) in branch.items" :key="item.id" :d="itemEdge(branch.top, index)" :style="{ stroke: item.development_status_color }" /></template>
+                  <template v-if="!branch.folded"><path v-for="(item, index) in branch.items" :key="item.id" :d="itemEdge(branch.top, index)" class="item-edge" /></template>
                 </g>
               </svg>
               <div class="mind-map-root">
-                <span class="mind-map-eyebrow">物品关系</span>
-                <strong>公司与物品</strong>
-                <small>{{ snapshot.companies.length }} 家公司 · {{ snapshot.items.length }} 件物品</small>
+                <span class="mind-map-eyebrow">商品关系</span>
+                <strong>公司与商品</strong>
+                <small>{{ snapshot.companies.length }} 家公司 · {{ snapshot.items.length }} 件商品</small>
               </div>
               <section v-for="branch in layout.branches" :key="branch.id" class="mind-map-branch" :aria-label="`${branch.title}分支`" :data-company-id="branch.id" :style="{ top: `${branch.top}px`, height: `${branch.height}px` }">
                 <div class="mind-map-company" :class="{ unassigned: !branch.company }">
@@ -218,21 +180,21 @@ useEvents(refresh)
                     <RouterLink v-if="branch.company" :to="`/companies/${branch.id}`" :title="branch.title" :aria-label="branch.title" class="mind-map-node-title">{{ branch.title }}</RouterLink>
                     <strong v-else class="mind-map-node-title">{{ branch.title }}</strong>
                     <small v-if="branch.company?.chinese_name && branch.company.english_name" :title="branch.company.english_name">{{ branch.company.english_name }}</small>
-                    <small>{{ branch.items.length ? `${branch.items.length} 件物品` : '暂无关联物品' }}<span v-if="branch.total !== branch.items.length"> / 共 {{ branch.total }} 件</span><span v-if="branch.folded"> · 已折叠</span></small>
+                    <small>{{ branch.items.length ? `${branch.items.length} 件商品` : '暂无关联商品' }}<span v-if="branch.total !== branch.items.length"> / 共 {{ branch.total }} 件</span><span v-if="branch.folded"> · 已折叠</span></small>
                   </div>
                 </div>
                 <template v-if="!branch.folded">
-                  <article v-for="(item, index) in branch.items" :key="item.id" class="mind-map-item" :data-item-id="item.id" :style="{ top: `${index * rowHeight}px`, '--item-status-color': item.development_status_color }">
-                    <div class="mind-map-item-heading"><span class="mind-map-kind">{{ itemLabel(item.item_kind) }}</span><RouterLink :to="itemPath(item)" :title="productTitle(item)" :aria-label="productTitle(item)" class="mind-map-node-title">{{ productTitle(item) }}</RouterLink></div>
+                  <article v-for="(item, index) in branch.items" :key="item.id" class="mind-map-item" :data-item-id="item.id" :aria-label="`${productTitle(item)}，${item.development_status_label}`" :style="{ top: `${index * rowHeight}px`, '--item-status-color': item.development_status_color }">
+                    <div class="mind-map-item-heading"><span class="mind-map-item-category" :title="item.category || '未分类'" :aria-label="`商品分类：${item.category || '未分类'}`">{{ item.category || '未分类' }}</span><RouterLink :to="itemPath(item)" :title="productTitle(item)" :aria-label="productTitle(item)" class="mind-map-node-title">{{ productTitle(item) }}</RouterLink></div>
                     <small v-if="item.chinese_name && item.english_name" class="mind-map-item-english" :title="item.english_name">{{ item.english_name }}</small>
-                    <div class="mind-map-item-meta"><StatusBadge :label="item.development_status_label" :color="item.development_status_color" /><span v-if="item.company_deleted" class="mind-map-category">原公司已删除</span><span v-else-if="item.category" class="mind-map-category" :title="item.category">{{ item.category }}</span></div>
+                    <small v-if="item.company_deleted" class="mind-map-item-note">原公司已删除</small>
                   </article>
                 </template>
               </section>
             </div>
           </div>
         </div>
-        <div id="mind-map-help" class="mind-map-help"><span>拖动画布或滚动浏览，使用缩放按钮或 Ctrl / ⌘ + 滚轮缩放。</span><span>其他物品不设公司，显示在未归属分支。</span></div>
+        <div id="mind-map-help" class="mind-map-help"><span>手机单指拖动、双指缩放；电脑可拖动、滚动或按 Ctrl / ⌘ + 滚轮缩放。</span><span>边框颜色表示制作状态，对照下方图例。</span></div>
       </div>
       <div class="mind-map-legend" aria-label="制作状态图例"><span>制作状态</span><StatusBadge v-for="option in snapshot.statuses" :key="option.value" :label="option.label" :color="option.color" /></div>
     </template>
@@ -262,14 +224,15 @@ useEvents(refresh)
 .mind-map-buttons button{font-size:.78rem}
 .mind-map-buttons .zoom-button{padding:.3rem .55rem;min-width:2.15rem;font-size:1rem}
 .mind-map-zoom{min-width:2.7rem;text-align:center;font-size:.8rem;font-variant-numeric:tabular-nums;color:var(--muted)}
-.mind-map-viewport{height:clamp(380px,61vh,720px);width:100%;overflow:auto;position:relative;isolation:isolate;cursor:grab;background-color:var(--surface-soft);background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:18px 18px;overscroll-behavior:contain;touch-action:pan-x pan-y}
+.mind-map-viewport{height:clamp(380px,61vh,720px);width:100%;overflow:auto;position:relative;isolation:isolate;cursor:grab;background-color:var(--surface-soft);background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:18px 18px;overscroll-behavior:contain;touch-action:none}
 .mind-map-viewport.dragging{cursor:grabbing;user-select:none}
 .mind-map-viewport:focus-visible{outline-offset:-3px}
-.mind-map-stage{position:relative;min-width:100%;min-height:100%}
+.mind-map-stage{position:relative;min-width:100%;min-height:100%;overflow:hidden}
 .mind-map-canvas{position:absolute;inset:0 auto auto 0;transform-origin:top left}
 .mind-map-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
 .mind-map-edges path{fill:none;stroke-width:1.5;stroke-opacity:.48;stroke-linejoin:round}
 .mind-map-edges .company-edge{stroke:var(--accent);stroke-opacity:.4}
+.mind-map-edges .item-edge{stroke:var(--muted);stroke-opacity:.3}
 .mind-map-root{position:absolute;top:32px;left:24px;width:200px;min-height:94px;display:flex;flex-direction:column;justify-content:center;gap:.4rem;padding:.9rem 1.1rem;border-radius:10px;background:var(--accent);color:var(--surface);box-shadow:0 3px 10px #0001}
 .mind-map-root strong{font-size:1.05rem}
 .mind-map-root small{font-size:.75rem;opacity:.9}
@@ -284,15 +247,12 @@ useEvents(refresh)
 .mind-map-node-title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);font-size:.9rem;font-weight:650;line-height:1.5}
 a.mind-map-node-title:hover{color:var(--accent)}
 .mind-map-company small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.72rem;line-height:1.6;color:var(--muted)}
-.mind-map-item{left:640px;width:340px;height:94px;border-left:3px solid var(--item-status-color);padding:.65rem .8rem;display:flex;flex-direction:column;justify-content:center;gap:.25rem}
+.mind-map-item{left:640px;width:340px;height:94px;border:2px solid var(--item-status-color);padding:.65rem .8rem;display:flex;flex-direction:column;justify-content:center;gap:.35rem}
 .mind-map-item-heading{display:flex;align-items:center;gap:.5rem;min-width:0}
 .mind-map-item-heading a{min-width:0;flex:1}
-.mind-map-kind{font-size:.65rem;flex:none;border-radius:4px;padding:.13rem .3rem;background:var(--surface-soft);color:var(--muted)}
+.mind-map-item-category{font-size:.65rem;max-width:45%;flex-shrink:0;border-radius:4px;padding:.13rem .3rem;background:var(--surface-soft);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mind-map-item-english{font-size:.7rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mind-map-item-meta{display:flex;align-items:center;gap:.6rem;min-width:0}
-.mind-map-item-meta :deep(.status-badge){flex:none;max-width:70%;padding:.16rem .4rem;font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mind-map-item-meta :deep(.status-dot){width:6px;height:6px}
-.mind-map-category{font-size:.7rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mind-map-item-note{font-size:.7rem;color:var(--muted)}
 .mind-map-help{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.65rem 1rem;border-top:1px solid var(--border);color:var(--muted);font-size:.72rem;line-height:1.6}
 .mind-map-legend{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:1rem;color:var(--muted);font-size:.75rem}
 .mind-map-legend>span:first-child{margin-right:.25rem}
