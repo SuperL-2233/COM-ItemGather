@@ -42,7 +42,7 @@ const mcpRecordIndex = `WITH records AS (
 ), edges AS (
  SELECT 'idea:'||l.idea_id source,p.item_kind||':'||l.product_id target,l.status relation FROM idea_product_links l JOIN products p ON p.id=l.product_id
  UNION ALL SELECT 'idea:'||idea_id,entity_type||':'||entity_id,status FROM setting_idea_links
- UNION ALL SELECT 'product:'||a.id,'product:'||b.id,'product_variant' FROM products a JOIN products b ON b.variant_group_id=a.variant_group_id AND b.id<>a.id WHERE a.variant_group_id IS NOT NULL
+ UNION ALL SELECT 'product:'||parent_product_id,'product:'||id,'product_variant' FROM products WHERE parent_product_id IS NOT NULL
  UNION ALL SELECT 'company:'||company_id,item_kind||':'||id,'company_item' FROM products WHERE company_id IS NOT NULL
  UNION ALL SELECT 'recipe:'||r.id,p.item_kind||':'||p.id,'recipe_output' FROM recipes r JOIN recipe_groups g ON g.id=r.group_id JOIN products p ON p.id=g.output_id
  UNION ALL SELECT 'recipe:'||ri.recipe_id,p.item_kind||':'||p.id,'recipe_ingredient' FROM recipe_ingredients ri JOIN products p ON p.id=ri.product_id
@@ -226,7 +226,7 @@ func mcpAttributes(items []Attribute) []map[string]string {
 }
 
 func mcpProductFields(item Product) map[string]any {
-	data := map[string]any{"variant_group_id": item.VariantGroupID, "variant_name": item.VariantName, "variant_description": item.VariantDescription, "variant_count": item.VariantCount, "chinese_name": item.ChineseName, "english_name": item.EnglishName, "category": item.Category, "description": item.Description,
+	data := map[string]any{"parent_product_id": item.ParentProductID, "variant_group_id": item.VariantGroupID, "variant_name": item.VariantName, "variant_description": item.VariantDescription, "variant_count": item.VariantCount, "chinese_name": item.ChineseName, "english_name": item.EnglishName, "category": item.Category, "description": item.Description,
 		"attributes": mcpAttributes(item.Attributes), "attachments": mcpAttachments(item.Attachments), "development_status": item.DevelopmentStatus,
 		"development_status_label": item.DevelopmentStatusLabel, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "version": item.Version}
 	if item.CompanyID != "" && !item.CompanyDeleted {
@@ -363,8 +363,8 @@ func (a *App) mcpLibraryInfo(ctx context.Context) (map[string]any, error) {
 	}
 	return map[string]any{"name": "Call of Mommy 创意库", "counts": counts, "kinds": mcpKinds, "categories": categories, "other_categories": otherCategories, "statuses": statuses, "use_categories": useCategories,
 		"scope": mcpReadScope, "default_page_size": 20, "max_page_size": 50,
-		"fields": map[string]string{"variant_group_id": "同一商品各款共享的分组 ID；具体款仍使用原物品 ID", "variant_name": "口味／样式名称，可留空；variant_description 为当前款差异说明", "id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "商品、道具与其他物品的动态设定属性；certainty 为 asserted/tentative/undecided", "category": "商品与道具使用 categories；其他物品使用独立的 other_categories，且没有所属公司", "idea_types": "灵感主要讨论的方面", "product_directions": "灵感中有明确依据的商品品类",
+		"fields": map[string]string{"parent_product_id": "商品口味／样式的父商品 ID；商品本身为空，下属口味彼此同级", "variant_group_id": "旧版兼容分组 ID，父子关系使用 parent_product_id", "variant_name": "口味／样式名称，可留空；variant_description 为当前款差异说明", "id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "商品、道具与其他物品的动态设定属性；certainty 为 asserted/tentative/undecided", "category": "商品与道具使用 categories；其他物品使用独立的 other_categories，且没有所属公司", "idea_types": "灵感主要讨论的方面", "product_directions": "灵感中有明确依据的商品品类",
 			"related": "关联摘要；list_records 的 related_to 可分页读取所有关联", "verification": "配方验证状态 untested/verified/invalid", "attachments": "仅文件名、类型、大小、时间等元信息",
-			"relations":          "candidate/adopted/rejected 为灵感关联状态；company_item/recipe_output/recipe_ingredient/product_variant 为公司物品/配方产物/配方材料/同商品其他款",
+			"relations":          "candidate/adopted/rejected 为灵感关联状态；company_item/recipe_output/recipe_ingredient/product_variant 为公司物品/配方产物/配方材料/下属商品口味／样式",
 			"deleted_references": "已删除材料和产物仅保留引用 ID 与数量；详情不可读取"}}, nil
 }

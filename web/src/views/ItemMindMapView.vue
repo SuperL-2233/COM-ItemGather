@@ -47,7 +47,7 @@ const allBranches = computed(() => {
     branch.items.push(item)
   }
   if (loose.items.length) branches.push(loose)
-  for (const branch of branches) branch.total = new Set(branch.items.map(item => item.variant_group_id || item.id)).size
+  for (const branch of branches) branch.total = branch.items.length
   return branches
 })
 
@@ -61,20 +61,10 @@ const filtered = computed(() => {
     const items = branch.items.filter(item =>
       (category.value === null || item.category === category.value) &&
       (!status.value || item.development_status === status.value) &&
-      (companyMatches || matches([item.chinese_name, item.english_name, item.category, item.variant_name || ''])),
+      (companyMatches || matches([item.chinese_name, item.english_name, item.category, ...(item.variant_names || [])])),
     )
     if (!items.length && (category.value !== null || status.value || !companyMatches || (term && branch.items.length))) return []
-    const groups = new Map<string, MindMapItem[]>()
-    for (const item of items) {
-      const key = item.variant_group_id || item.id
-      if (!groups.has(key)) groups.set(key, [])
-      groups.get(key)!.push(item)
-    }
-    const grouped = [...groups.values()].map(members => {
-      const states = new Set(members.map(item => item.development_status))
-      return { ...members[0], variant_count: members.length, ...(states.size > 1 ? { development_status_label: '多种制作状态', development_status_color: '#64748b' } : {}) }
-    })
-    return [{ ...branch, items: grouped }]
+    return [{ ...branch, items }]
   })
 })
 const itemCount = computed(() => filtered.value.reduce((total, branch) => total + branch.items.length, 0))
@@ -197,14 +187,14 @@ useEvents(refresh)
                   <article v-for="(item, index) in branch.items" :key="item.id" class="mind-map-item" :data-item-id="item.id" :aria-label="`${productTitle(item)}，${item.development_status_label}`" :style="{ top: `${index * rowHeight}px`, '--item-status-color': item.development_status_color }">
                     <div class="mind-map-item-heading"><span class="mind-map-item-category" :title="item.category || '未分类'" :aria-label="`商品分类：${item.category || '未分类'}`">{{ item.category || '未分类' }}</span><RouterLink :to="itemPath(item)" :title="productTitle(item)" :aria-label="productTitle(item)" class="mind-map-node-title">{{ productTitle(item) }}</RouterLink></div>
                     <small v-if="item.chinese_name && item.english_name" class="mind-map-item-english" :title="item.english_name">{{ item.english_name }}</small>
-                    <small v-if="item.variant_count && item.variant_count > 1" class="mind-map-item-note">{{ item.variant_count }} 款口味／样式 · {{ item.development_status_label }}</small><small v-if="item.company_deleted" class="mind-map-item-note">原公司已删除</small>
+                    <small v-if="item.variant_count" class="mind-map-item-note">{{ item.variant_count }} 种口味／样式</small><small v-if="item.company_deleted" class="mind-map-item-note">原公司已删除</small>
                   </article>
                 </template>
               </section>
             </div>
           </div>
         </div>
-        <div id="mind-map-help" class="mind-map-help"><span>手机单指拖动、双指缩放；电脑可拖动、滚动或按 Ctrl / ⌘ + 滚轮缩放。</span><span>边框颜色表示制作状态，对照下方图例；同一商品的多款收拢展示，多种状态用灰色。</span></div>
+        <div id="mind-map-help" class="mind-map-help"><span>手机单指拖动、双指缩放；电脑可拖动、滚动或按 Ctrl / ⌘ + 滚轮缩放。</span><span>边框颜色表示商品制作状态，对照下方图例；口味／样式属于商品下的子项。</span></div>
       </div>
       <div class="mind-map-legend" aria-label="制作状态图例"><span>制作状态</span><StatusBadge v-for="option in snapshot.statuses" :key="option.value" :label="option.label" :color="option.color" /></div>
     </template>

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 )
 
@@ -13,18 +14,21 @@ type mindMapCompany struct {
 }
 
 type mindMapItem struct {
-	VariantGroupID         string `json:"variant_group_id"`
-	VariantName            string `json:"variant_name"`
-	ID                     string `json:"id"`
-	ChineseName            string `json:"chinese_name"`
-	EnglishName            string `json:"english_name"`
-	ItemKind               string `json:"item_kind"`
-	CompanyID              string `json:"company_id"`
-	CompanyDeleted         bool   `json:"company_deleted"`
-	Category               string `json:"category"`
-	DevelopmentStatus      string `json:"development_status"`
-	DevelopmentStatusLabel string `json:"development_status_label"`
-	DevelopmentStatusColor string `json:"development_status_color"`
+	ParentProductID        string   `json:"parent_product_id"`
+	VariantCount           int      `json:"variant_count"`
+	VariantNames           []string `json:"variant_names"`
+	VariantGroupID         string   `json:"variant_group_id"`
+	VariantName            string   `json:"variant_name"`
+	ID                     string   `json:"id"`
+	ChineseName            string   `json:"chinese_name"`
+	EnglishName            string   `json:"english_name"`
+	ItemKind               string   `json:"item_kind"`
+	CompanyID              string   `json:"company_id"`
+	CompanyDeleted         bool     `json:"company_deleted"`
+	Category               string   `json:"category"`
+	DevelopmentStatus      string   `json:"development_status"`
+	DevelopmentStatusLabel string   `json:"development_status_label"`
+	DevelopmentStatusColor string   `json:"development_status_color"`
 }
 
 type itemMindMap struct {
@@ -54,10 +58,10 @@ func loadMindMapCompanies(ctx context.Context, q querier) ([]mindMapCompany, err
 func loadMindMapItems(ctx context.Context, q querier) ([]mindMapItem, error) {
 	rows, err := q.QueryContext(ctx, `SELECT p.id,p.chinese_name,p.english_name,p.item_kind,COALESCE(p.company_id,''),
 		c.deleted_at IS NOT NULL,p.category,COALESCE(p.status_option_id,p.development_status),
-		COALESCE(s.name,p.development_status),COALESCE(s.color,'#7c3aed'),COALESCE(p.variant_group_id,''),p.variant_name
+		COALESCE(s.name,p.development_status),COALESCE(s.color,'#7c3aed'),COALESCE(p.variant_group_id,''),p.variant_name,(SELECT COUNT(*) FROM products v WHERE v.parent_product_id=p.id AND v.deleted_at IS NULL),(SELECT json_group_array(variant_name) FROM products v WHERE v.parent_product_id=p.id AND v.deleted_at IS NULL)
 		FROM products p LEFT JOIN companies c ON c.id=p.company_id
 		LEFT JOIN product_statuses s ON s.id=COALESCE(p.status_option_id,p.development_status)
-		WHERE p.item_kind='product' AND p.deleted_at IS NULL
+		WHERE p.item_kind='product' AND p.parent_product_id IS NULL AND p.deleted_at IS NULL
 		ORDER BY COALESCE(NULLIF(p.chinese_name,''),p.english_name) COLLATE ZH_PINYIN,p.id`)
 	if err != nil {
 		return nil, err
@@ -66,8 +70,12 @@ func loadMindMapItems(ctx context.Context, q querier) ([]mindMapItem, error) {
 	items := []mindMapItem{}
 	for rows.Next() {
 		var item mindMapItem
+		var names string
 		if err := rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.ItemKind, &item.CompanyID,
-			&item.CompanyDeleted, &item.Category, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.VariantGroupID, &item.VariantName); err != nil {
+			&item.CompanyDeleted, &item.Category, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.VariantGroupID, &item.VariantName, &item.VariantCount, &names); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(names), &item.VariantNames); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

@@ -12,6 +12,7 @@ import (
 )
 
 type productFields struct {
+	ParentProductID    string       `json:"parent_product_id"`
 	VariantName        string       `json:"variant_name"`
 	VariantDescription string       `json:"variant_description"`
 	VariantGroupID     string       `json:"variant_group_id"`
@@ -43,7 +44,7 @@ func (a *App) itemHandler(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,COALESCE(p.status_option_id,p.development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),p.development_status),COALESCE((SELECT color FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),'#7c3aed'),p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL),COALESCE(p.variant_group_id,''),p.variant_name,p.variant_description,CASE WHEN p.variant_group_id IS NULL THEN 1 ELSE (SELECT COUNT(*) FROM products v WHERE v.variant_group_id=p.variant_group_id AND v.deleted_at IS NULL) END FROM products p `
+const productSelect = `SELECT p.id,p.chinese_name,p.english_name,p.company,p.category,p.description,COALESCE(p.status_option_id,p.development_status),COALESCE((SELECT name FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),p.development_status),COALESCE((SELECT color FROM product_statuses WHERE id=COALESCE(p.status_option_id,p.development_status)),'#7c3aed'),p.created_by,p.created_at,p.updated_at,p.version,COALESCE(p.deleted_at,''),p.item_kind,COALESCE(p.company_id,''),p.use_category,p.tool_settings_json,EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND c.deleted_at IS NOT NULL),(SELECT COUNT(*) FROM idea_product_links l JOIN ideas i ON i.id=l.idea_id WHERE l.product_id=p.id AND i.deleted_at IS NULL),COALESCE(p.variant_group_id,''),p.variant_name,p.variant_description,(SELECT COUNT(*) FROM products v WHERE v.parent_product_id=p.id AND v.deleted_at IS NULL),COALESCE(p.parent_product_id,''),p.parent_deleted_at FROM products p `
 
 func loadProduct(ctx context.Context, q querier, id string, deleted, related bool) (Product, error) {
 	clause := "WHERE p.id=?"
@@ -52,7 +53,7 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	}
 	var item Product
 	var removed, toolJSON string
-	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount, &item.VariantGroupID, &item.VariantName, &item.VariantDescription, &item.VariantCount)
+	err := q.QueryRowContext(ctx, productSelect+clause, id).Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount, &item.VariantGroupID, &item.VariantName, &item.VariantDescription, &item.VariantCount, &item.ParentProductID, &item.ParentDeletedAt)
 	if err != nil {
 		return item, ensureNoRows(err)
 	}
@@ -74,8 +75,8 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	if err != nil {
 		return item, err
 	}
-	if related && item.VariantGroupID != "" && item.VariantCount > 1 {
-		item.Variants, err = loadVariantMembers(ctx, q, item.VariantGroupID)
+	if related && item.ItemKind == "product" && item.ParentProductID == "" {
+		item.Variants, err = loadVariantMembers(ctx, q, item.ID)
 		if err != nil {
 			return item, err
 		}
@@ -96,7 +97,7 @@ func loadProduct(ctx context.Context, q querier, id string, deleted, related boo
 	return item, nil
 }
 func productSnapshot(item Product) productFields {
-	return productFields{VariantGroupID: item.VariantGroupID, VariantName: item.VariantName, VariantDescription: item.VariantDescription, CompanyID: item.CompanyID, UseCategory: item.UseCategory, ToolSettings: item.ToolSettings, ChineseName: item.ChineseName, EnglishName: item.EnglishName, Company: item.Company, Category: item.Category, Description: item.Description, DevelopmentStatus: item.DevelopmentStatus, Attributes: item.Attributes}
+	return productFields{ParentProductID: item.ParentProductID, VariantGroupID: item.VariantGroupID, VariantName: item.VariantName, VariantDescription: item.VariantDescription, CompanyID: item.CompanyID, UseCategory: item.UseCategory, ToolSettings: item.ToolSettings, ChineseName: item.ChineseName, EnglishName: item.EnglishName, Company: item.Company, Category: item.Category, Description: item.Description, DevelopmentStatus: item.DevelopmentStatus, Attributes: item.Attributes}
 }
 func validProductStatus(status string) bool {
 	return status == "concept" || status == "design" || status == "production" || status == "completed"
@@ -138,15 +139,14 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fail(422, "validation", "仅商品支持变体，每个商品最多 100 款"))
 		return
 	}
-	if len(body.Variants) > 0 {
-		body.VariantName, body.VariantDescription = body.Variants[0].Name, body.Variants[0].Description
-		if strings.TrimSpace(body.VariantName) == "" {
-			writeError(w, fail(422, "validation", "请填写口味／样式名称"))
+	// Older clients may still send a single variant on the product form.
+	// Keep it as a child, never promote it to become the parent product.
+	if strings.TrimSpace(body.VariantName) != "" || body.VariantDescription != "" {
+		if requestItemKind(r) != "product" || len(body.Variants) > 0 {
+			writeError(w, fail(422, "validation", "请在口味／样式列表中填写各个口味"))
 			return
 		}
-		if body.Variants[0].Status != "" {
-			body.DevelopmentStatus = body.Variants[0].Status
-		}
+		body.Variants = []variantInput{{Name: body.VariantName, Description: body.VariantDescription}}
 	}
 	attrs, err := validAttributes(body.Attributes)
 	if err != nil {
@@ -190,7 +190,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	variant := Product{ID: id, ItemKind: requestItemKind(r), VariantName: strings.TrimSpace(body.VariantName), VariantDescription: body.VariantDescription}
+	variant := Product{ID: id, ItemKind: requestItemKind(r), VariantName: "", VariantDescription: ""}
 	if variant.ItemKind == "product" {
 		variant.VariantGroupID = id
 		if _, err = tx.ExecContext(r.Context(), "INSERT INTO product_variant_groups(id) VALUES(?)", id); err != nil {
@@ -229,7 +229,7 @@ func (a *App) createProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	for _, input := range body.Variants[min(1, len(body.Variants)):] {
+	for _, input := range body.Variants {
 		if _, err = a.insertProductVariant(r.Context(), tx, item, input, user.ID); err != nil {
 			writeError(w, err)
 			return
@@ -350,6 +350,10 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 	where := "p.deleted_at IS NULL AND p.item_kind=?"
+	includeVariants := parameters.Get("include_variants") == "1"
+	if !includeVariants {
+		where += " AND p.parent_product_id IS NULL"
+	}
 	args := []any{requestItemKind(r)}
 	if companyID := parameters.Get("company_id"); companyID != "" {
 		where += " AND p.company_id=?"
@@ -399,29 +403,18 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	if query != "" {
 		like := "%" + escapeLike(query) + "%"
-		where += ` AND (p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR p.use_category LIKE ? ESCAPE '\' OR p.variant_name LIKE ? ESCAPE '\' OR p.variant_description LIKE ? ESCAPE '\' OR p.tool_settings_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND (c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\')) OR EXISTS(SELECT 1 FROM product_attributes pa WHERE pa.product_id=p.id AND (pa.key LIKE ? ESCAPE '\' OR pa.value LIKE ? ESCAPE '\')))`
-		for i := 0; i < 13; i++ {
+		where += ` AND (p.chinese_name LIKE ? ESCAPE '\' OR p.english_name LIKE ? ESCAPE '\' OR p.company LIKE ? ESCAPE '\' OR p.category LIKE ? ESCAPE '\' OR p.description LIKE ? ESCAPE '\' OR p.use_category LIKE ? ESCAPE '\' OR p.variant_name LIKE ? ESCAPE '\' OR p.variant_description LIKE ? ESCAPE '\' OR p.tool_settings_json LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM companies c WHERE c.id=p.company_id AND (c.english_name LIKE ? ESCAPE '\' OR c.aliases LIKE ? ESCAPE '\')) OR EXISTS(SELECT 1 FROM product_attributes pa WHERE pa.product_id=p.id AND (pa.key LIKE ? ESCAPE '\' OR pa.value LIKE ? ESCAPE '\')) OR EXISTS(SELECT 1 FROM products v WHERE v.parent_product_id=p.id AND v.deleted_at IS NULL AND (v.variant_name LIKE ? ESCAPE '\' OR v.variant_description LIKE ? ESCAPE '\')))`
+		for i := 0; i < 15; i++ {
 			args = append(args, like)
 		}
 	}
-	grouped := requestItemKind(r) == "product" && parameters.Get("grouped") == "1"
-	countExpression := "COUNT(*)"
-	if grouped {
-		countExpression = "COUNT(DISTINCT COALESCE(p.variant_group_id,p.id))"
-	}
 	var total int
-	if err = a.db.QueryRowContext(r.Context(), "SELECT "+countExpression+" FROM products p WHERE "+where, args...).Scan(&total); err != nil {
+	if err = a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM products p WHERE "+where, args...).Scan(&total); err != nil {
 		writeError(w, err)
 		return
 	}
-	prefix := ""
-	if grouped {
-		order = strings.ReplaceAll(order, "rtrim(p.updated_at,'Z')", "(SELECT MAX(rtrim(v.updated_at,'Z')) FROM products v WHERE v.deleted_at IS NULL AND COALESCE(v.variant_group_id,v.id)=COALESCE(p.variant_group_id,p.id))")
-		prefix = "WITH matched AS (SELECT p.id,ROW_NUMBER() OVER(PARTITION BY COALESCE(p.variant_group_id,p.id) ORDER BY p.created_at,p.id) AS member FROM products p WHERE " + where + ") "
-		where = "p.id IN (SELECT id FROM matched WHERE member=1)"
-	}
 	args = append(args, limit, offset)
-	rows, err := a.db.QueryContext(r.Context(), prefix+productSelect+"WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?", args...)
+	rows, err := a.db.QueryContext(r.Context(), productSelect+"WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?", args...)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -430,7 +423,7 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item Product
 		var removed, toolJSON string
-		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount, &item.VariantGroupID, &item.VariantName, &item.VariantDescription, &item.VariantCount); err != nil {
+		if err = rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.Company, &item.Category, &item.Description, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, &item.Version, &removed, &item.ItemKind, &item.CompanyID, &item.UseCategory, &toolJSON, &item.CompanyDeleted, &item.IdeaCount, &item.VariantGroupID, &item.VariantName, &item.VariantDescription, &item.VariantCount, &item.ParentProductID, &item.ParentDeletedAt); err != nil {
 			rows.Close()
 			writeError(w, err)
 			return
@@ -441,8 +434,8 @@ func (a *App) listProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 	for index := range items {
-		if grouped && items[index].VariantCount > 1 {
-			items[index].Variants, err = loadVariantMembers(r.Context(), a.db, items[index].VariantGroupID)
+		if items[index].ParentProductID == "" && items[index].VariantCount > 0 {
+			items[index].Variants, err = loadVariantMembers(r.Context(), a.db, items[index].ID)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -572,6 +565,10 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 		}
 		item.Attributes = attrs
 	}
+	if item.ParentProductID != "" && !sameProductShared(before, item) {
+		writeError(w, fail(422, "validation", "商品名称、公司、分类与描述请在所属商品中修改"))
+		return
+	}
 	statusID, legacyStatus, statusLabel, err := resolveProductStatus(r.Context(), tx, item.DevelopmentStatus)
 	if err != nil {
 		writeError(w, err)
@@ -603,6 +600,12 @@ func (a *App) updateProduct(w http.ResponseWriter, r *http.Request) {
 	if err = a.syncProductShared(r.Context(), tx, before, item, user.ID, nil); err != nil {
 		writeError(w, err)
 		return
+	}
+	if item.ParentProductID != "" && sameProductShared(before, item) {
+		if err = a.touchVariantParent(r.Context(), tx, item.ParentProductID, user.ID); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	a.publish(tx, "product.updated", "product", id)
 	if err = tx.Commit(); err != nil {
@@ -649,6 +652,11 @@ func (a *App) changeProductDeleted(w http.ResponseWriter, r *http.Request, remov
 		writeError(w, fail(409, "version_conflict", "记录版本已变化"))
 		return
 	}
+	if remove == (item.DeletedAt != "") {
+		writeJSON(w, 200, map[string]any{"ok": true, "version": item.Version})
+		return
+	}
+	wasDeleted := item.DeletedAt
 	before := productSnapshot(item)
 	item.Version++
 	item.UpdatedAt = now()
@@ -665,7 +673,7 @@ func (a *App) changeProductDeleted(w http.ResponseWriter, r *http.Request, remov
 			return
 		}
 	}
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET deleted_at=?,version=?,updated_at=? WHERE id=? AND version=?", deleted, item.Version, item.UpdatedAt, id, body.Version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET deleted_at=?,parent_deleted_at='',version=?,updated_at=? WHERE id=? AND version=?", deleted, item.Version, item.UpdatedAt, id, body.Version)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -676,6 +684,19 @@ func (a *App) changeProductDeleted(w http.ResponseWriter, r *http.Request, remov
 		return
 	}
 	if err = addRevision(r.Context(), tx, "product", id, item.Version, &user.ID, action, before, productSnapshot(item)); err != nil {
+		writeError(w, err)
+		return
+	}
+	if item.ParentProductID == "" {
+		stamp := item.DeletedAt
+		if !remove {
+			stamp = wasDeleted
+		}
+		if err = a.changeVariantChildren(r.Context(), tx, item, stamp, user.ID, remove); err != nil {
+			writeError(w, err)
+			return
+		}
+	} else if err = a.touchVariantParent(r.Context(), tx, item.ParentProductID, user.ID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -715,36 +736,55 @@ func (a *App) permanentDeleteProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fail(409, "version_conflict", "记录版本已变化"))
 		return
 	}
-	paths := a.attachmentPaths(r.Context(), a.db, "product", id)
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer tx.Rollback()
-	var references int
-	if err = tx.QueryRowContext(r.Context(), "SELECT (SELECT COUNT(*) FROM recipe_groups WHERE output_id=?)+(SELECT COUNT(*) FROM recipe_ingredients WHERE product_id=?)", id, id).Scan(&references); err != nil {
+	latest, err := loadProduct(r.Context(), tx, id, true, false)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if references > 0 {
-		writeError(w, fail(409, "item_in_use", "该物品仍被合成配方引用，请先移除引用；也可以保留在回收站"))
+	if latest.Version != body.Version || latest.DeletedAt == "" {
+		writeError(w, fail(409, "version_conflict", "记录版本已变化"))
 		return
 	}
-
-	result, err := tx.ExecContext(r.Context(), "DELETE FROM products WHERE id=? AND version=? AND deleted_at IS NOT NULL", id, body.Version)
-	if err == nil {
-		count, _ := result.RowsAffected()
-		if count != 1 {
-			writeError(w, fail(409, "version_conflict", "记录版本已变化"))
+	ids, err := queryIDs(r.Context(), tx, "SELECT id FROM products WHERE parent_product_id=?", id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ids = append(ids, id)
+	paths := []string{}
+	for _, targetID := range ids {
+		var references int
+		if err = tx.QueryRowContext(r.Context(), "SELECT (SELECT COUNT(*) FROM recipe_groups WHERE output_id=?)+(SELECT COUNT(*) FROM recipe_ingredients WHERE product_id=?)", targetID, targetID).Scan(&references); err != nil {
+			writeError(w, err)
 			return
 		}
-		err = a.publish(tx, "product.deleted_permanently", "product", id)
+		if references > 0 {
+			writeError(w, fail(409, "item_in_use", "该商品或下属口味仍被合成配方引用，请先移除引用；也可以保留在回收站"))
+			return
+		}
+		paths = append(paths, a.attachmentPaths(r.Context(), tx, "product", targetID)...)
 	}
-	if err != nil {
-		tx.Rollback()
-		writeError(w, err)
-		return
+	for _, targetID := range ids {
+		result, err := tx.ExecContext(r.Context(), "DELETE FROM products WHERE id=? AND deleted_at IS NOT NULL", targetID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		count, _ := result.RowsAffected()
+		if count != 1 {
+			writeError(w, fail(409, "version_conflict", "商品口味已变化，请刷新后重试"))
+			return
+		}
+		if err = a.publish(tx, "product.deleted_permanently", "product", targetID); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		writeError(w, err)

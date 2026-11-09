@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"net/url"
 	"testing"
 )
@@ -13,73 +12,100 @@ func readVariantProduct(t *testing.T, c *testClient, id string) Product {
 	return decodeTestJSON[Product](t, data)
 }
 
-func TestProductVariantsShareMetadataAndKeepIndependentIdentities(t *testing.T) {
+func milkWithFlavors(t *testing.T, c *testClient) Product {
+	t.Helper()
+	return catalogItem(t, c, "products", "白鲸 袋装奶", map[string]any{"description": "共用袋装奶模型", "variants": []variantInput{{Name: "玫瑰荔枝味", Status: "completed"}, {Name: "草莓味", Description: "粉色贴图", Status: "design"}, {Name: "巧克力味"}}})
+}
+
+func TestProductOwnsEqualFlavorChildren(t *testing.T) {
 	env := newTestEnvironment(t, nil)
 	c := newAdminClient(t, env)
-	company := catalogCompany(t, c, "牛奶公司")
-	base := catalogItem(t, c, "products", "咕噜牛奶", map[string]any{"company_id": company.ID, "category": "饮料", "description": "共用瓶子模型", "variants": []variantInput{{Name: "原味", Status: "completed"}, {Name: "草莓味", Description: "粉色贴图", Status: "design"}, {Name: "巧克力味"}}})
-	if base.VariantCount != 3 || len(base.Variants) != 3 || base.VariantName != "原味" {
-		t.Fatalf("unexpected variants or extra default: %+v", base)
+	parent := milkWithFlavors(t, c)
+	if parent.ParentProductID != "" || parent.VariantName != "" || parent.VariantDescription != "" || parent.VariantCount != 3 || len(parent.Variants) != 3 || parent.DevelopmentStatus != "concept" {
+		t.Fatalf("product was promoted from its first flavor: %+v", parent)
 	}
-	var strawberry Product
-	ids := map[string]bool{}
-	for _, member := range base.Variants {
-		if ids[member.ID] || member.VariantGroupID != base.VariantGroupID || member.ChineseName != base.ChineseName || member.CompanyID != company.ID || member.Description != base.Description {
-			t.Fatalf("identity or shared metadata lost: %+v", member)
+	ids := map[string]bool{parent.ID: true}
+	for _, child := range parent.Variants {
+		if ids[child.ID] || child.ParentProductID != parent.ID || child.ChineseName != parent.ChineseName || child.Description != parent.Description || child.VariantName == "" {
+			t.Fatalf("flavors must be siblings under a distinct parent: %+v", child)
 		}
-		ids[member.ID] = true
-		if member.VariantName == "草莓味" {
-			strawberry = member
-		}
+		ids[child.ID] = true
 	}
-	if strawberry.ID == "" || strawberry.VariantDescription != "粉色贴图" || strawberry.DevelopmentStatus != "design" {
-		t.Fatal("per-variant fields missing")
+	rose, strawberry := parent.Variants[0], parent.Variants[1]
+	if rose.DevelopmentStatus != "completed" || strawberry.DevelopmentStatus != "design" {
+		t.Fatal("independent flavor statuses lost")
 	}
-	// Existing item-based recipe relations must keep pointing to the exact flavor.
-	group := catalogGroup(t, c, base)
-	status, data := c.request(t, "POST", "/api/recipe-groups/"+group.ID+"/recipes", recipeFields{Name: "草莓配方", OutputQuantity: 1, Verification: "untested", Ingredients: []Ingredient{{ProductID: strawberry.ID, Quantity: 2}}})
-	assertStatus(t, status, 201, data)
-	status, data = c.request(t, "PATCH", "/api/products/"+strawberry.ID, map[string]any{"version": strawberry.Version, "chinese_name": "新牛奶", "category": "乳饮料", "description": "新的共用模型说明", "variant_description": "新的粉色贴图", "development_status": "production"})
+	status, data := c.request(t, "PATCH", "/api/products/"+parent.ID+"/variants/"+strawberry.ID, map[string]any{"version": strawberry.Version, "variant_name": "草莓牛奶味", "variant_description": "新版粉色贴图", "development_status": "production"})
 	assertStatus(t, status, 200, data)
-	updated := decodeTestJSON[Product](t, data)
-	for _, original := range base.Variants {
-		member := readVariantProduct(t, c, original.ID)
-		if member.ChineseName != "新牛奶" || member.Category != "乳饮料" || member.Description != "新的共用模型说明" || member.Version != original.Version+1 {
-			t.Fatalf("shared edit missing version/history: %+v", member)
-		}
-		if original.ID != strawberry.ID && (member.DevelopmentStatus != original.DevelopmentStatus || member.VariantDescription != original.VariantDescription) {
-			t.Fatal("shared edit overwrote per-variant details")
-		}
+	edited := decodeTestJSON[Product](t, data)
+	if edited.ID != strawberry.ID || edited.ParentProductID != parent.ID || edited.VariantName != "草莓牛奶味" {
+		t.Fatal("editing a flavor changed its identity")
 	}
-	status, data = c.request(t, "PATCH", "/api/products/"+base.ID, map[string]any{"version": base.Version, "company_id": ""})
-	assertStatus(t, status, 409, data)
-	status, data = c.request(t, "GET", "/api/recipe-groups/"+group.ID, nil)
-	assertStatus(t, status, 200, data)
-	recipeGroup := decodeTestJSON[RecipeGroup](t, data)
-	if recipeGroup.OutputID != base.ID || recipeGroup.Recipes[0].Ingredients[0].ProductID != strawberry.ID || recipeGroup.Recipes[0].Ingredients[0].Item.VariantName != "草莓味" {
-		t.Fatal("shared edit retargeted a recipe")
+	current := readVariantProduct(t, c, parent.ID)
+	if current.ID != parent.ID || current.ChineseName != parent.ChineseName || current.VariantName != "" || current.VariantCount != 3 || current.DevelopmentStatus != parent.DevelopmentStatus || current.Version != parent.Version+1 {
+		t.Fatalf("editing a child replaced the parent: %+v", current)
 	}
-	status, data = c.request(t, "POST", "/api/products/"+updated.ID+"/variants", map[string]any{"version": updated.Version, "variant_name": "香蕉味"})
-	assertStatus(t, status, 201, data)
-	added := decodeTestJSON[Product](t, data)
-	if added.VariantCount != 4 || added.DevelopmentStatus != "concept" || added.ChineseName != "新牛奶" {
-		t.Fatalf("new variant copied wrong defaults: %+v", added)
-	}
-	status, data = c.request(t, "POST", "/api/products/"+updated.ID+"/variants", map[string]any{"version": updated.Version, "variant_name": " 草莓味 "})
+	status, data = c.request(t, "PATCH", "/api/products/"+parent.ID+"/variants/"+edited.ID, map[string]any{"version": edited.Version, "chinese_name": "口味不能改写父商品"})
 	assertStatus(t, status, 422, data)
-	if readVariantProduct(t, c, updated.ID).VariantCount != 4 {
-		t.Fatal("duplicate created a partial variant")
+	if readVariantProduct(t, c, rose.ID).DevelopmentStatus != rose.DevelopmentStatus {
+		t.Fatal("editing one sibling changed another")
+	}
+	status, data = c.request(t, "PATCH", "/api/products/"+parent.ID, map[string]any{"version": current.Version, "chinese_name": "白鲸 新袋装奶", "category": "乳制品", "description": "共用新模型"})
+	assertStatus(t, status, 200, data)
+	for _, child := range current.Variants {
+		item := readVariantProduct(t, c, child.ID)
+		if item.ChineseName != "白鲸 新袋装奶" || item.Category != "乳制品" || item.Description != "共用新模型" || item.ParentProductID != parent.ID || item.VariantName != child.VariantName {
+			t.Fatal("parent metadata did not reach its children")
+		}
+	}
+	status, data = c.request(t, "PATCH", "/api/products/"+parent.ID, map[string]any{"version": current.Version + 1, "variant_name": "不应写在商品上"})
+	assertStatus(t, status, 422, data)
+}
+
+func TestProductFlavorAddRemoveAndOwnership(t *testing.T) {
+	env := newTestEnvironment(t, nil)
+	c := newAdminClient(t, env)
+	parent := catalogItem(t, c, "products", "白鲸 袋装奶", map[string]any{"development_status": "completed"})
+	if parent.VariantCount != 0 || len(parent.Variants) != 0 {
+		t.Fatal("plain product acquired a hidden default flavor")
+	}
+	status, data := c.request(t, "POST", "/api/products/"+parent.ID+"/variants", map[string]any{"version": parent.Version, "variant_name": "草莓味"})
+	assertStatus(t, status, 201, data)
+	child := decodeTestJSON[Product](t, data)
+	if child.ParentProductID != parent.ID || child.ID == parent.ID || child.DevelopmentStatus != "concept" {
+		t.Fatal("adding a flavor replaced the product")
+	}
+	parent = readVariantProduct(t, c, parent.ID)
+	if parent.VariantName != "" || parent.VariantCount != 1 || parent.DevelopmentStatus != "completed" {
+		t.Fatal("parent became its only flavor")
+	}
+	other := catalogItem(t, c, "products", "其他商品", nil)
+	status, data = c.request(t, "PATCH", "/api/products/"+other.ID+"/variants/"+child.ID, map[string]any{"version": child.Version, "variant_name": "错误归属"})
+	assertStatus(t, status, 404, data)
+	status, data = c.request(t, "PATCH", "/api/products/"+parent.ID+"/variants/"+child.ID, map[string]any{"version": child.Version, "variant_description": "粉色", "attributes": []Attribute{{Key: "含糖量", Value: "少糖", Certainty: "asserted"}}})
+	assertStatus(t, status, 200, data)
+	child = decodeTestJSON[Product](t, data)
+	status, data = c.request(t, "PATCH", "/api/products/"+parent.ID+"/variants/"+child.ID, map[string]any{"version": child.Version - 1, "variant_name": "过期修改"})
+	assertStatus(t, status, 409, data)
+	status, data = c.request(t, "DELETE", "/api/products/"+parent.ID+"/variants/"+child.ID, map[string]int{"version": child.Version})
+	assertStatus(t, status, 200, data)
+	parent = readVariantProduct(t, c, parent.ID)
+	if parent.VariantCount != 0 || len(parent.Variants) != 0 || parent.VariantName != "" || parent.ChineseName != "白鲸 袋装奶" {
+		t.Fatal("removing the final flavor removed the product")
+	}
+	status, data = c.request(t, "POST", "/api/products/"+child.ID+"/restore", map[string]int{"version": child.Version + 1})
+	assertStatus(t, status, 200, data)
+	restored := readVariantProduct(t, c, child.ID)
+	if restored.ParentProductID != parent.ID || restored.VariantDescription != "粉色" || len(restored.Attributes) != 1 {
+		t.Fatal("flavor restore lost fields or parent identity")
 	}
 }
 
-func TestProductVariantsGroupedPaginationSearchAndExport(t *testing.T) {
+func TestProductFlavorCatalogSearchAndConcreteRecipeIdentity(t *testing.T) {
 	env := newTestEnvironment(t, nil)
 	c := newAdminClient(t, env)
-	first := catalogItem(t, c, "products", "同名饮料", map[string]any{"variants": []variantInput{{Name: "Original", Status: "completed"}, {Name: "苹果味", Description: "绿色限定贴图", Status: "design"}, {Name: "葡萄味"}}})
-	second := catalogItem(t, c, "products", "同名饮料", nil)
-	if first.VariantGroupID == second.VariantGroupID || second.VariantName != "" {
-		t.Fatal("same-named independent items were merged")
-	}
+	parent := milkWithFlavors(t, c)
+	sameName := catalogItem(t, c, "products", parent.ChineseName, nil)
 	type productPage struct {
 		Items []Product `json:"items"`
 		Total int       `json:"total"`
@@ -87,96 +113,143 @@ func TestProductVariantsGroupedPaginationSearchAndExport(t *testing.T) {
 	for _, entry := range []struct {
 		query string
 		total int
-	}{{"grouped=1&limit=1", 2}, {"grouped=1&q=" + url.QueryEscape("苹果"), 1}, {"grouped=1&q=" + url.QueryEscape("限定贴图"), 1}, {"grouped=1&status=design", 1}, {"q=" + url.QueryEscape("同名饮料"), 4}} {
+	}{{"", 2}, {"grouped=1", 2}, {"include_variants=1", 5}, {"q=" + url.QueryEscape("草莓"), 1}, {"q=" + url.QueryEscape("粉色贴图"), 1}, {"limit=1&offset=1", 2}} {
 		status, data := c.request(t, "GET", "/api/products?"+entry.query, nil)
 		assertStatus(t, status, 200, data)
 		page := decodeTestJSON[productPage](t, data)
 		if page.Total != entry.total || len(page.Items) == 0 {
-			t.Fatalf("grouping/search lost records for %s: %s", entry.query, data)
+			t.Fatalf("parent catalog failed for %s: %s", entry.query, data)
 		}
-		if page.Items[0].VariantCount > 1 && entry.query != "q="+url.QueryEscape("同名饮料") && len(page.Items[0].Variants) != 3 {
-			t.Fatal("group omitted non-matching flavors")
+		if entry.query != "include_variants=1" {
+			for _, item := range page.Items {
+				if item.ParentProductID != "" || item.VariantName != "" {
+					t.Fatal("flavors leaked into the product catalog")
+				}
+			}
 		}
 	}
-	status, data := c.request(t, "GET", "/api/products?grouped=1&limit=1&offset=1", nil)
-	assertStatus(t, status, 200, data)
-	if page := decodeTestJSON[productPage](t, data); len(page.Items) != 1 || page.Items[0].ID != first.ID {
-		t.Fatalf("pagination split a product group: %s", data)
+	if sameName.ID == parent.ID {
+		t.Fatal("independent same-named products were combined")
 	}
-	status, data = c.request(t, "GET", "/api/search?kind=products&q="+url.QueryEscape("苹果"), nil)
+	strawberry := parent.Variants[1]
+	group := catalogGroup(t, c, strawberry)
+	status, data := c.request(t, "POST", "/api/recipe-groups/"+group.ID+"/recipes", recipeFields{Name: "精确口味配方", OutputQuantity: 1, Verification: "untested", Ingredients: []Ingredient{{ProductID: parent.Variants[0].ID, Quantity: 2}}})
+	assertStatus(t, status, 201, data)
+	status, data = c.request(t, "GET", "/api/recipe-groups/"+group.ID, nil)
 	assertStatus(t, status, 200, data)
-	if len(decodeTestJSON[struct {
+	recipe := decodeTestJSON[RecipeGroup](t, data)
+	if recipe.OutputID != strawberry.ID || recipe.Output.ParentProductID != parent.ID || recipe.Recipes[0].Ingredients[0].ProductID != parent.Variants[0].ID {
+		t.Fatal("recipe stopped referring to an exact original flavor")
+	}
+	status, data = c.request(t, "GET", "/api/search?kind=products&q="+url.QueryEscape("草莓"), nil)
+	assertStatus(t, status, 200, data)
+	search := decodeTestJSON[struct {
 		Products []Product `json:"products"`
-	}](t, data).Products) != 1 {
-		t.Fatal("global search ignores variants")
+	}](t, data)
+	if len(search.Products) != 1 || search.Products[0].ID != parent.ID {
+		t.Fatal("global search did not return the parent product")
 	}
-	page, err := env.app.mcpListRecords(t.Context(), mcpListArgs{Query: "苹果", Kinds: []string{"product"}, Limit: 10})
-	if err != nil || len(page.Results) != 1 || page.Results[0].Title != "同名饮料 · 苹果味" {
-		t.Fatalf("MCP variant search failed: %+v %v", page, err)
+	graph := readTestMindMap(t, c)
+	if len(graph.Items) != 2 {
+		t.Fatal("mind map displayed flavors as products")
+	}
+	for _, item := range graph.Items {
+		if item.ID == parent.ID && (item.VariantCount != 3 || len(item.VariantNames) != 3) {
+			t.Fatal("mind map lost child names")
+		}
+	}
+	related, err := env.app.mcpListRecords(t.Context(), mcpListArgs{RelatedTo: "product:" + parent.ID, Kinds: []string{"product"}, Limit: 10})
+	if err != nil || len(related.Results) != 3 {
+		t.Fatalf("MCP parent-child relation missing: %+v %v", related, err)
 	}
 	status, data = c.request(t, "GET", "/api/export", nil)
 	assertStatus(t, status, 200, data)
 	exported := decodeTestJSON[struct {
 		Products []Product `json:"products"`
 	}](t, data)
-	if len(exported.Products) != 4 {
-		t.Fatalf("export collapsed concrete variants: %s", data)
+	if len(exported.Products) != 5 {
+		t.Fatal("export collapsed original concrete identities")
 	}
 }
 
-func TestProductVariantGroupingDeletionBatchAndHistory(t *testing.T) {
+func TestProductFlavorTrashCascadesOnlyWithItsParent(t *testing.T) {
 	env := newTestEnvironment(t, nil)
 	c := newAdminClient(t, env)
-	base := catalogItem(t, c, "products", "旧牛奶", map[string]any{"description": "共用瓶子", "variant_name": "原味"})
-	legacy := catalogItem(t, c, "products", "旧牛奶草莓版", map[string]any{"description": "原始独立设定", "variant_description": "粉色", "development_status": "design"})
-	idea := createTestIdea(t, c, "variant-legacy-link", "草莓包装")
-	status, data := c.request(t, "POST", "/api/links", map[string]any{"idea_id": idea.ID, "product_id": legacy.ID, "status": "candidate"})
-	assertStatus(t, status, 201, data)
-	group := catalogGroup(t, c, legacy)
-	status, data = c.request(t, "POST", "/api/products/"+legacy.ID+"/variant-group", map[string]any{"version": legacy.Version, "target_id": base.ID, "target_version": base.Version, "variant_name": "草莓味"})
+	parent := milkWithFlavors(t, c)
+	removed := parent.Variants[1]
+	status, data := c.request(t, "DELETE", "/api/products/"+parent.ID+"/variants/"+removed.ID, map[string]int{"version": removed.Version})
 	assertStatus(t, status, 200, data)
-	moved := decodeTestJSON[Product](t, data)
-	if moved.ID != legacy.ID || moved.VariantGroupID != base.VariantGroupID || moved.Description != base.Description || moved.VariantDescription != "粉色" || moved.DevelopmentStatus != "design" || len(moved.Links) != 1 {
-		t.Fatalf("grouping destroyed independent data: %+v", moved)
+	parent = readVariantProduct(t, c, parent.ID)
+	status, data = c.request(t, "DELETE", "/api/products/"+parent.ID, map[string]int{"version": parent.Version})
+	assertStatus(t, status, 200, data)
+	// A repeated delete must not replace the timestamp used to restore children.
+	status, data = c.request(t, "DELETE", "/api/products/"+parent.ID, map[string]int{"version": parent.Version + 1})
+	assertStatus(t, status, 200, data)
+	for _, child := range append(parent.Variants, removed) {
+		status, data = c.request(t, "GET", "/api/products/"+child.ID, nil)
+		assertStatus(t, status, 404, data)
 	}
-	status, data = c.request(t, "DELETE", "/api/products/"+moved.ID, map[string]int{"version": moved.Version})
+	status, data = c.request(t, "GET", "/api/trash", nil)
 	assertStatus(t, status, 200, data)
-	// A shared edit also updates trashed members, so restoring cannot revive stale metadata.
-	base = readVariantProduct(t, c, base.ID)
-	status, data = c.request(t, "PATCH", "/api/products/batch", map[string]any{"items": batchSelection(base), "category": "乳制品", "development_status": "completed"})
-	assertStatus(t, status, 200, data)
-	trashed, err := loadProduct(t.Context(), env.db, moved.ID, true, false)
-	if err != nil || trashed.Category != "乳制品" || trashed.DevelopmentStatus != "design" || trashed.Version != moved.Version+2 {
-		t.Fatalf("trash metadata or independent state lost: %+v %v", trashed, err)
+	trash := decodeTestJSON[struct {
+		Products []Product `json:"products"`
+	}](t, data)
+	if len(trash.Products) != 2 {
+		t.Fatalf("cascaded flavors duplicated the parent in trash: %s", data)
 	}
-	status, data = c.request(t, "POST", "/api/products/"+moved.ID+"/restore", map[string]int{"version": trashed.Version})
+	status, data = c.request(t, "POST", "/api/products/"+parent.ID+"/restore", map[string]int{"version": parent.Version + 1})
 	assertStatus(t, status, 200, data)
-	moved = readVariantProduct(t, c, moved.ID)
-	status, data = c.request(t, "POST", "/api/products/"+moved.ID+"/variant-group", map[string]any{"version": moved.Version, "target_id": "", "variant_name": moved.VariantName})
-	assertStatus(t, status, 200, data)
-	detached := decodeTestJSON[Product](t, data)
-	if detached.VariantGroupID == base.VariantGroupID || detached.Category != "乳制品" || detached.ID != legacy.ID {
-		t.Fatal("detach changed identity or data")
+	restored := readVariantProduct(t, c, parent.ID)
+	if restored.VariantCount != 2 {
+		t.Fatal("parent restore revived an individually removed flavor")
 	}
-	status, data = c.request(t, "GET", "/api/recipe-groups/"+group.ID, nil)
+	status, data = c.request(t, "GET", "/api/products/"+removed.ID, nil)
+	assertStatus(t, status, 404, data)
+	catalogGroup(t, c, restored.Variants[0])
+	status, data = c.request(t, "DELETE", "/api/products/"+restored.ID, map[string]int{"version": restored.Version})
 	assertStatus(t, status, 200, data)
-	if decodeTestJSON[RecipeGroup](t, data).OutputID != legacy.ID {
-		t.Fatal("grouping changed recipe output")
-	}
-	status, data = c.request(t, "GET", "/api/products/"+base.ID+"/revisions", nil)
-	assertStatus(t, status, 200, data)
-	revisions := decodeTestJSON[struct {
-		Items []Revision `json:"items"`
-	}](t, data).Items
-	base = readVariantProduct(t, c, base.ID)
-	status, data = c.request(t, "POST", fmt.Sprintf("/api/products/%s/revisions/%s/restore", base.ID, revisions[len(revisions)-1].ID), map[string]int{"version": base.Version})
-	assertStatus(t, status, 200, data)
-	if readVariantProduct(t, c, detached.ID).Category != "乳制品" {
-		t.Fatal("history restore changed a detached member")
+	status, data = c.request(t, "DELETE", "/api/products/"+restored.ID+"/permanent", map[string]int{"version": restored.Version + 1})
+	assertStatus(t, status, 409, data)
+	if _, err := loadProduct(t.Context(), env.db, restored.Variants[0].ID, true, false); err != nil {
+		t.Fatal("failed parent purge deleted a referenced flavor")
 	}
 }
 
-func TestProductVariantsInvalidCreatesRollbackAndRestoreConflicts(t *testing.T) {
+func TestProductFlavorBatchAndLegacyRequests(t *testing.T) {
+	env := newTestEnvironment(t, nil)
+	c := newAdminClient(t, env)
+	parent := milkWithFlavors(t, c)
+	status, data := c.request(t, "PATCH", "/api/products/batch", map[string]any{"items": batchSelection(parent), "category": "乳制品", "development_status": "completed"})
+	assertStatus(t, status, 200, data)
+	for _, child := range parent.Variants {
+		item := readVariantProduct(t, c, child.ID)
+		if item.Category != "乳制品" || item.Version != child.Version+1 || item.DevelopmentStatus != child.DevelopmentStatus {
+			t.Fatal("batch parent edit overwrote flavor status or incremented twice")
+		}
+	}
+	// A legacy single-variant request becomes a normal parent and one child.
+	legacy := catalogItem(t, c, "products", "旧客户端商品", map[string]any{"variant_name": "香草味", "variant_description": "白色贴图"})
+	if legacy.VariantName != "" || legacy.VariantCount != 1 || legacy.Variants[0].ID == legacy.ID {
+		t.Fatal("legacy request labeled the parent as a flavor")
+	}
+	child := legacy.Variants[0]
+	snapshot := `{"chinese_name":"旧历史名称","company":"","category":"","description":"旧版说明","development_status":"concept","attributes":[]}`
+	if _, err := env.db.Exec("INSERT INTO revisions(id,entity_type,entity_id,version,action,after_data,created_at) VALUES('legacy-flavor','product',?,1,'update',?,?)", child.ID, snapshot, now()); err != nil {
+		t.Fatal(err)
+	}
+	status, data = c.request(t, "POST", "/api/products/"+child.ID+"/revisions/legacy-flavor/restore", map[string]int{"version": child.Version})
+	assertStatus(t, status, 200, data)
+	child = readVariantProduct(t, c, child.ID)
+	if child.VariantName != "香草味" || child.VariantDescription != "白色贴图" || child.ParentProductID != legacy.ID {
+		t.Fatal("legacy history lost original child details")
+	}
+	root := readVariantProduct(t, c, legacy.ID)
+	if root.VariantName != "" || root.ChineseName != "旧客户端商品" {
+		t.Fatal("legacy restore turned the parent into a selected flavor")
+	}
+}
+
+func TestProductFlavorValidationRollsBackParentAndChildren(t *testing.T) {
 	env := newTestEnvironment(t, nil)
 	c := newAdminClient(t, env)
 	for _, collection := range []string{"products", "tools", "other-items"} {
@@ -185,84 +258,14 @@ func TestProductVariantsInvalidCreatesRollbackAndRestoreConflicts(t *testing.T) 
 	}
 	var count int
 	if err := env.db.QueryRow("SELECT COUNT(*) FROM products").Scan(&count); err != nil || count != 0 {
-		t.Fatal("invalid multi-create left partial records")
+		t.Fatal("invalid create left a parent or child behind")
 	}
-	base := catalogItem(t, c, "products", "饮料", map[string]any{"variants": []variantInput{{Name: "原味"}, {Name: "草莓味"}}})
-	member := base.Variants[1]
-	status, data := c.request(t, "DELETE", "/api/products/"+member.ID, map[string]int{"version": member.Version})
-	assertStatus(t, status, 200, data)
-	status, data = c.request(t, "POST", "/api/products/"+base.ID+"/variants", map[string]any{"version": base.Version, "variant_name": member.VariantName})
-	assertStatus(t, status, 201, data)
-	status, data = c.request(t, "POST", "/api/products/"+member.ID+"/restore", map[string]int{"version": member.Version + 1})
+	parent := milkWithFlavors(t, c)
+	status, data := c.request(t, "POST", "/api/products/"+parent.ID+"/variants", map[string]any{"version": parent.Version, "variant_name": " 草莓味 "})
 	assertStatus(t, status, 422, data)
-	status, data = c.request(t, "GET", "/api/products/"+member.ID, nil)
-	assertStatus(t, status, 404, data)
-}
-
-func TestProductVariantSharedBatchAndLegacyHistory(t *testing.T) {
-	env := newTestEnvironment(t, nil)
-	c := newAdminClient(t, env)
-	base := catalogItem(t, c, "products", "原商品", map[string]any{"variants": []variantInput{{Name: "原味"}, {Name: "草莓味", Status: "design"}, {Name: "香蕉味", Status: "completed"}}})
-	first, second, third := base.Variants[0], base.Variants[1], base.Variants[2]
-	status, data := c.request(t, "PATCH", "/api/products/batch", map[string]any{"items": batchSelection(first, second), "category": "批量共用分类", "development_status": "production"})
-	assertStatus(t, status, 200, data)
-	for _, original := range base.Variants {
-		current := readVariantProduct(t, c, original.ID)
-		if current.Version != original.Version+1 || current.Category != "批量共用分类" {
-			t.Fatalf("batch incremented a sibling twice or skipped it: %+v", current)
-		}
-		if original.ID == third.ID && current.DevelopmentStatus != original.DevelopmentStatus {
-			t.Fatal("batch changed an unselected variant's status")
-		}
-	}
-	// A patch from an older client omits the new fields and must preserve them.
-	base = readVariantProduct(t, c, base.ID)
-	status, data = c.request(t, "PATCH", "/api/products/"+base.ID, map[string]any{"version": base.Version, "description": "新版共用说明"})
-	assertStatus(t, status, 200, data)
-	base = decodeTestJSON[Product](t, data)
-	if base.VariantName != "原味" {
-		t.Fatal("old client patch cleared a variant label")
-	}
-	legacy := `{"chinese_name":"旧历史名称","company":"","category":"旧分类","description":"旧版说明","development_status":"concept","attributes":[]}`
-	_, err := env.db.Exec("INSERT INTO revisions(id,entity_type,entity_id,version,action,after_data,created_at) VALUES('pre-variants','product',?,1,'update',?,?)", base.ID, legacy, now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, data = c.request(t, "POST", "/api/products/"+base.ID+"/revisions/pre-variants/restore", map[string]int{"version": base.Version})
-	assertStatus(t, status, 200, data)
-	for _, original := range base.Variants {
-		current := readVariantProduct(t, c, original.ID)
-		if current.VariantName != original.VariantName || current.VariantGroupID != base.VariantGroupID || current.ChineseName != "旧历史名称" || current.Category != "旧分类" {
-			t.Fatalf("legacy history broke variant identity or shared metadata: %+v", current)
-		}
-		if current.ID != base.ID && current.DevelopmentStatus != original.DevelopmentStatus {
-			t.Fatal("history restore changed another variant's status")
-		}
-	}
-	independent := catalogItem(t, c, "products", "独立商品", nil)
-	status, data = c.request(t, "POST", "/api/products/"+independent.ID+"/variant-group", map[string]any{"version": independent.Version, "target_id": base.ID, "target_version": base.Version, "variant_name": "新口味"})
-	assertStatus(t, status, 409, data)
-	if current := readVariantProduct(t, c, independent.ID); current.VariantGroupID != independent.VariantGroupID || current.ChineseName != independent.ChineseName {
-		t.Fatal("stale target left a partial regroup")
-	}
-}
-
-func TestProductVariantGroupSurvivesOriginalItemPurge(t *testing.T) {
-	env := newTestEnvironment(t, nil)
-	c := newAdminClient(t, env)
-	base := catalogItem(t, c, "products", "持久分组", map[string]any{"variants": []variantInput{{Name: "原味"}, {Name: "草莓味"}}})
-	member := base.Variants[1]
-	status, data := c.request(t, "DELETE", "/api/products/"+base.ID, map[string]int{"version": base.Version})
-	assertStatus(t, status, 200, data)
-	status, data = c.request(t, "DELETE", "/api/products/"+base.ID+"/permanent", map[string]int{"version": base.Version + 1})
-	assertStatus(t, status, 200, data)
-	member = readVariantProduct(t, c, member.ID)
-	if member.VariantCount != 1 || member.VariantGroupID != base.VariantGroupID {
-		t.Fatal("purging the first member destroyed the group")
-	}
-	status, data = c.request(t, "POST", "/api/products/"+member.ID+"/variants", map[string]any{"version": member.Version, "variant_name": "香蕉味"})
-	assertStatus(t, status, 201, data)
-	if added := decodeTestJSON[Product](t, data); added.VariantGroupID != base.VariantGroupID || added.VariantCount != 2 {
-		t.Fatal("surviving group can no longer accept variants")
+	status, data = c.request(t, "POST", "/api/products/"+parent.Variants[0].ID+"/variants", map[string]any{"version": parent.Variants[0].Version, "variant_name": "孙级口味"})
+	assertStatus(t, status, 422, data)
+	if readVariantProduct(t, c, parent.ID).VariantCount != 3 {
+		t.Fatal("invalid nested flavor was saved")
 	}
 }

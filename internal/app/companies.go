@@ -150,7 +150,7 @@ func loadCompany(ctx context.Context, q querier, id string, deleted bool) (Compa
 	if !deleted {
 		clause = " AND c.deleted_at IS NULL"
 	}
-	err := q.QueryRowContext(ctx, `SELECT c.id,c.chinese_name,c.english_name,c.aliases,c.description,COALESCE(c.created_by,''),c.created_at,c.updated_at,c.version,COALESCE(c.deleted_at,''),(SELECT COUNT(*) FROM products p WHERE p.company_id=c.id AND p.deleted_at IS NULL) FROM companies c WHERE c.id=?`+clause, id).Scan(&c.ID, &c.ChineseName, &c.EnglishName, &c.Aliases, &c.Description, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.Version, &c.DeletedAt, &c.ItemCount)
+	err := q.QueryRowContext(ctx, `SELECT c.id,c.chinese_name,c.english_name,c.aliases,c.description,COALESCE(c.created_by,''),c.created_at,c.updated_at,c.version,COALESCE(c.deleted_at,''),(SELECT COUNT(*) FROM products p WHERE p.company_id=c.id AND p.parent_product_id IS NULL AND p.deleted_at IS NULL) FROM companies c WHERE c.id=?`+clause, id).Scan(&c.ID, &c.ChineseName, &c.EnglishName, &c.Aliases, &c.Description, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.Version, &c.DeletedAt, &c.ItemCount)
 	if err != nil {
 		return c, ensureNoRows(err)
 	}

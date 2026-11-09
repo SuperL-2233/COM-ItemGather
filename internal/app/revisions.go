@@ -94,19 +94,21 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 		return
 	}
 	// Pre-variant history has no group field; keep the current variant details.
-	if data.VariantGroupID != "" {
+	if item.ParentProductID != "" && data.VariantGroupID != "" {
 		item.VariantName, item.VariantDescription = data.VariantName, data.VariantDescription
 	}
 	if err = validateVariant(r.Context(), tx, item); err != nil {
 		writeError(w, err)
 		return
 	}
-	item.ChineseName = clean(data.ChineseName, 160)
-	item.EnglishName = clean(data.EnglishName, 160)
-	item.CompanyID, item.Company, err = resolveItemCompany(r.Context(), tx, item.ItemKind, data.CompanyID, data.Company, user.ID)
-	if err != nil {
-		writeError(w, err)
-		return
+	if item.ParentProductID == "" {
+		item.ChineseName = clean(data.ChineseName, 160)
+		item.EnglishName = clean(data.EnglishName, 160)
+		item.CompanyID, item.Company, err = resolveItemCompany(r.Context(), tx, item.ItemKind, data.CompanyID, data.Company, user.ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	if err = validateToolSettings(data.ToolSettings); err != nil {
 		writeError(w, err)
@@ -118,12 +120,14 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	}
 	item.UseCategory = clean(data.UseCategory, 80)
 	item.ToolSettings = data.ToolSettings
-	item.Category, err = ensureItemCategory(r.Context(), tx, data.Category, item.ItemKind)
-	if err != nil {
-		writeError(w, err)
-		return
+	if item.ParentProductID == "" {
+		item.Category, err = ensureItemCategory(r.Context(), tx, data.Category, item.ItemKind)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		item.Description = data.Description
 	}
-	item.Description = data.Description
 	item.DevelopmentStatus = data.DevelopmentStatus
 	item.Attributes = attrs
 	item.Version++
@@ -149,6 +153,12 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	if err = a.syncProductShared(r.Context(), tx, before, item, user.ID, nil); err != nil {
 		writeError(w, err)
 		return
+	}
+	if item.ParentProductID != "" && sameProductShared(before, item) {
+		if err = a.touchVariantParent(r.Context(), tx, item.ParentProductID, user.ID); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	a.publish(tx, "product.updated", "product", id)
 	if err = tx.Commit(); err != nil {

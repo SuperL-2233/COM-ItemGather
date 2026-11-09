@@ -30,7 +30,7 @@ func (a *App) listTrash(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	products := []Product{}
-	productRows, err := a.db.QueryContext(r.Context(), "SELECT id FROM products WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
+	productRows, err := a.db.QueryContext(r.Context(), "SELECT id FROM products WHERE deleted_at IS NOT NULL AND parent_deleted_at='' ORDER BY deleted_at DESC")
 	if err != nil {
 		writeError(w, err)
 		return

@@ -51,8 +51,8 @@ func (a *App) batchUpdateProducts(w http.ResponseWriter, r *http.Request) {
 			writeError(w, loadErr)
 			return
 		}
-		if item.ItemKind != "product" {
-			writeError(w, fail(422, "validation", "批量修改仅支持商品"))
+		if item.ItemKind != "product" || item.ParentProductID != "" {
+			writeError(w, fail(422, "validation", "批量修改请选择商品，口味／样式在所属商品下编辑"))
 			return
 		}
 		if item.Version != selected.Version {

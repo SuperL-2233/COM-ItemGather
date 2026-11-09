@@ -85,6 +85,8 @@ type Idea struct {
 }
 
 type Product struct {
+	ParentProductID        string       `json:"parent_product_id"`
+	ParentDeletedAt        string       `json:"-"`
 	VariantGroupID         string       `json:"variant_group_id"`
 	VariantName            string       `json:"variant_name"`
 	VariantDescription     string       `json:"variant_description"`

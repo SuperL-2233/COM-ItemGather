@@ -38,7 +38,6 @@ const allDisplayedSelected = computed(() => products.value.length > 0 && product
 async function startSelection() {
   closeSort()
   selecting.value = true
-  await load(true, true)
   await nextTick()
   const top = Math.max(0, document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0)
   const bottom = document.querySelector('.product-selection-bar')?.getBoundingClientRect().top || window.innerHeight
@@ -56,7 +55,7 @@ function finishSelection() {
   selecting.value = false
   selected.value = new Map()
   batchProducts.value = undefined
-  void load(true, true).then(() => nextTick(() => selectionTrigger.value?.focus({ preventScroll: true })))
+  void nextTick(() => selectionTrigger.value?.focus({ preventScroll: true }))
 }
 function clearSelection() { selected.value = new Map(); batchProducts.value = undefined }
 function toggleProduct(product: Product) {
@@ -198,7 +197,6 @@ async function load(reset = true, preserveDepth = false) {
   try {
     const offset = reset ? 0 : products.value.length
     const parameters = new URLSearchParams({ q: query.value, sort: sort.value, limit: '30', offset: String(offset) })
-    if (!other && !selecting.value) parameters.set('grouped', '1')
     if (typeof route.query.company_id === 'string') parameters.set('company_id',route.query.company_id)
     for (const [key, values] of Object.entries(filters.value)) for (const value of values) parameters.append(key, value)
     const signal = requestController?.signal
@@ -291,7 +289,6 @@ useEvents(refresh)
       </div>
       <FilterPopover id="product-filter-popover" v-model="filters" :label="noun" :groups="filterGroups" />
     </form>
-    <p v-if="selecting" class="muted">按具体款式选择；修改公司或分类会同步到同一商品的其他款式。</p>
     <div v-if="activeFilters.length" class="product-active-filters" aria-label="已选筛选条件">
       <button v-for="filter in activeFilters" :key="`${filter.key}:${filter.value}`" type="button" :aria-label="`移除${filter.label}筛选`" @click="removeFilter(filter.key, filter.value)">{{ filter.label }}<span aria-hidden="true">×</span></button>
     </div>
@@ -324,7 +321,7 @@ useEvents(refresh)
     <p v-if="loading && !products.length" class="muted">读取中…</p>
     <div v-else-if="products.length" ref="catalog" class="product-catalog" :class="`is-${layout}`" :aria-busy="loading">
       <div v-if="layout === 'list'" class="product-list-header" aria-hidden="true"><span>{{ noun }}名称</span><span v-if="!other">所属公司</span><span>{{ noun }}分类</span><span>制作状态</span></div>
-      <ProductCatalogGroup v-for="product in products" :key="!selecting && product.variant_group_id || product.id" :product="product" :layout="layout" :selectable="selecting" :selected="selected.has(product.id)" :selection-disabled="selectionLocked" :query="query" :expanded="expandedGroups.has(product.variant_group_id)" @expand="toggleGroup(product.variant_group_id)" @toggle="toggleProduct(product)" />
+      <ProductCatalogGroup v-for="product in products" :key="product.id" :product="product" :layout="layout" :selectable="selecting" :selected="selected.has(product.id)" :selection-disabled="selectionLocked" :query="query" :expanded="expandedGroups.has(product.id)" @expand="toggleGroup(product.id)" @toggle="toggleProduct(product)" />
     </div>
     <div v-else class="empty-state">{{ hasConditions ? `没有找到符合条件的${noun}，试试其他关键词或筛选条件。` : `还没有${noun}。可以在这里创建，也可以从一条灵感主动创建。` }}</div>
     <div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div>

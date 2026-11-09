@@ -78,7 +78,7 @@ useEvents(load)
     <dialog ref="dialog" class="modal batch-edit-dialog" aria-labelledby="batch-edit-title" aria-describedby="batch-edit-description" @cancel.prevent="cancel">
       <form @submit.prevent="save">
         <h2 id="batch-edit-title" ref="heading" tabindex="-1">批量修改商品</h2>
-        <p id="batch-edit-description" class="muted">已选 {{ products.length }} 件商品。只修改你选择的项目。公司和分类由同一商品的各款共享，会一起更新。</p>
+        <p id="batch-edit-description" class="muted">已选 {{ products.length }} 件商品。只修改你选择的项目。公司和分类会同步到商品下属的口味／样式。</p>
         <fieldset :disabled="busy || loading">
           <div class="field"><span class="field-label">商品分类</span><SearchCreateSelect v-model="category" label="批量商品分类" :options="categoryChoices" create-label="" :allow-create="false" compact empty-label="清空分类" :loading="loading" /></div>
           <div class="field"><span class="field-label">制作状态</span><SearchCreateSelect v-model="status" label="批量制作状态" :options="statusChoices" create-label="" :allow-create="false" :allow-empty="false" compact :loading="loading" /></div>
