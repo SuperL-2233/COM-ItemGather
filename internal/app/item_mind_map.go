@@ -13,6 +13,8 @@ type mindMapCompany struct {
 }
 
 type mindMapItem struct {
+	VariantGroupID         string `json:"variant_group_id"`
+	VariantName            string `json:"variant_name"`
 	ID                     string `json:"id"`
 	ChineseName            string `json:"chinese_name"`
 	EnglishName            string `json:"english_name"`
@@ -52,7 +54,7 @@ func loadMindMapCompanies(ctx context.Context, q querier) ([]mindMapCompany, err
 func loadMindMapItems(ctx context.Context, q querier) ([]mindMapItem, error) {
 	rows, err := q.QueryContext(ctx, `SELECT p.id,p.chinese_name,p.english_name,p.item_kind,COALESCE(p.company_id,''),
 		c.deleted_at IS NOT NULL,p.category,COALESCE(p.status_option_id,p.development_status),
-		COALESCE(s.name,p.development_status),COALESCE(s.color,'#7c3aed')
+		COALESCE(s.name,p.development_status),COALESCE(s.color,'#7c3aed'),COALESCE(p.variant_group_id,''),p.variant_name
 		FROM products p LEFT JOIN companies c ON c.id=p.company_id
 		LEFT JOIN product_statuses s ON s.id=COALESCE(p.status_option_id,p.development_status)
 		WHERE p.item_kind='product' AND p.deleted_at IS NULL
@@ -65,7 +67,7 @@ func loadMindMapItems(ctx context.Context, q querier) ([]mindMapItem, error) {
 	for rows.Next() {
 		var item mindMapItem
 		if err := rows.Scan(&item.ID, &item.ChineseName, &item.EnglishName, &item.ItemKind, &item.CompanyID,
-			&item.CompanyDeleted, &item.Category, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor); err != nil {
+			&item.CompanyDeleted, &item.Category, &item.DevelopmentStatus, &item.DevelopmentStatusLabel, &item.DevelopmentStatusColor, &item.VariantGroupID, &item.VariantName); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

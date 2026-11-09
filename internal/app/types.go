@@ -85,6 +85,11 @@ type Idea struct {
 }
 
 type Product struct {
+	VariantGroupID         string       `json:"variant_group_id"`
+	VariantName            string       `json:"variant_name"`
+	VariantDescription     string       `json:"variant_description"`
+	VariantCount           int          `json:"variant_count"`
+	Variants               []Product    `json:"variants,omitempty"`
 	DevelopmentStatusColor string       `json:"development_status_color"`
 	DevelopmentStatusLabel string       `json:"development_status_label"`
 	ItemKind               string       `json:"item_kind"`

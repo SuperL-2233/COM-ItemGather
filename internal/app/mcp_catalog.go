@@ -25,8 +25,8 @@ const mcpRecordIndex = `WITH records AS (
  i.original_content||' '||i.content||' '||i.display_title||' '||i.summary||' '||i.notes||' '||i.idea_types_json||' '||i.product_directions_json search_text,'' group_id
  FROM ideas i WHERE i.deleted_at IS NULL
  UNION ALL
- SELECT p.item_kind,p.id,COALESCE(NULLIF(p.chinese_name,''),NULLIF(p.english_name,''),'未命名物品'),substr(p.description,1,240),p.updated_at,p.category,COALESCE(p.status_option_id,p.development_status),COALESCE(c.id,''),
- p.chinese_name||' '||p.english_name||' '||p.description||' '||p.category||' '||p.use_category||' '||p.tool_settings_json||' '||COALESCE(c.chinese_name||' '||c.english_name||' '||c.aliases,'')||' '||
+ SELECT p.item_kind,p.id,COALESCE(NULLIF(p.chinese_name,''),NULLIF(p.english_name,''),'未命名物品')||CASE WHEN p.variant_name='' THEN '' ELSE ' · '||p.variant_name END,substr(p.description,1,240),p.updated_at,p.category,COALESCE(p.status_option_id,p.development_status),COALESCE(c.id,''),
+ p.chinese_name||' '||p.english_name||' '||p.variant_name||' '||p.variant_description||' '||p.description||' '||p.category||' '||p.use_category||' '||p.tool_settings_json||' '||COALESCE(c.chinese_name||' '||c.english_name||' '||c.aliases,'')||' '||
  COALESCE((SELECT group_concat(a.key||' '||a.value,' ') FROM product_attributes a WHERE a.product_id=p.id),''),''
  FROM products p LEFT JOIN companies c ON c.id=p.company_id AND c.deleted_at IS NULL WHERE p.deleted_at IS NULL
  UNION ALL
@@ -34,14 +34,15 @@ const mcpRecordIndex = `WITH records AS (
  c.chinese_name||' '||c.english_name||' '||c.aliases||' '||c.description,'' FROM companies c WHERE c.deleted_at IS NULL
  UNION ALL
  SELECT 'recipe',r.id,COALESCE(NULLIF(r.name,''),'未命名配方'),substr(r.notes,1,240),r.updated_at,'',COALESCE(r.status_option_id,r.development_status),'',
- r.name||' '||r.notes||' '||COALESCE(p.chinese_name||' '||p.english_name,'')||' '||
- COALESCE((SELECT group_concat(CASE WHEN ri.product_id IS NULL THEN ri.category ELSE COALESCE(m.chinese_name||' '||m.english_name,'') END,' ')
+ r.name||' '||r.notes||' '||COALESCE(p.chinese_name||' '||p.english_name||' '||p.variant_name,'')||' '||
+ COALESCE((SELECT group_concat(CASE WHEN ri.product_id IS NULL THEN ri.category ELSE COALESCE(m.chinese_name||' '||m.english_name||' '||m.variant_name,'') END,' ')
  FROM recipe_ingredients ri LEFT JOIN products m ON m.id=ri.product_id AND m.deleted_at IS NULL WHERE ri.recipe_id=r.id),''),r.group_id
  FROM recipes r JOIN recipe_groups g ON g.id=r.group_id AND g.deleted_at IS NULL
  LEFT JOIN products p ON p.id=g.output_id AND p.deleted_at IS NULL WHERE r.deleted_at IS NULL
 ), edges AS (
  SELECT 'idea:'||l.idea_id source,p.item_kind||':'||l.product_id target,l.status relation FROM idea_product_links l JOIN products p ON p.id=l.product_id
  UNION ALL SELECT 'idea:'||idea_id,entity_type||':'||entity_id,status FROM setting_idea_links
+ UNION ALL SELECT 'product:'||a.id,'product:'||b.id,'product_variant' FROM products a JOIN products b ON b.variant_group_id=a.variant_group_id AND b.id<>a.id WHERE a.variant_group_id IS NOT NULL
  UNION ALL SELECT 'company:'||company_id,item_kind||':'||id,'company_item' FROM products WHERE company_id IS NOT NULL
  UNION ALL SELECT 'recipe:'||r.id,p.item_kind||':'||p.id,'recipe_output' FROM recipes r JOIN recipe_groups g ON g.id=r.group_id JOIN products p ON p.id=g.output_id
  UNION ALL SELECT 'recipe:'||ri.recipe_id,p.item_kind||':'||p.id,'recipe_ingredient' FROM recipe_ingredients ri JOIN products p ON p.id=ri.product_id
@@ -225,7 +226,7 @@ func mcpAttributes(items []Attribute) []map[string]string {
 }
 
 func mcpProductFields(item Product) map[string]any {
-	data := map[string]any{"chinese_name": item.ChineseName, "english_name": item.EnglishName, "category": item.Category, "description": item.Description,
+	data := map[string]any{"variant_group_id": item.VariantGroupID, "variant_name": item.VariantName, "variant_description": item.VariantDescription, "variant_count": item.VariantCount, "chinese_name": item.ChineseName, "english_name": item.EnglishName, "category": item.Category, "description": item.Description,
 		"attributes": mcpAttributes(item.Attributes), "attachments": mcpAttachments(item.Attachments), "development_status": item.DevelopmentStatus,
 		"development_status_label": item.DevelopmentStatusLabel, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "version": item.Version}
 	if item.CompanyID != "" && !item.CompanyDeleted {
@@ -362,8 +363,8 @@ func (a *App) mcpLibraryInfo(ctx context.Context) (map[string]any, error) {
 	}
 	return map[string]any{"name": "Call of Mommy 创意库", "counts": counts, "kinds": mcpKinds, "categories": categories, "other_categories": otherCategories, "statuses": statuses, "use_categories": useCategories,
 		"scope": mcpReadScope, "default_page_size": 20, "max_page_size": 50,
-		"fields": map[string]string{"id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "商品、道具与其他物品的动态设定属性；certainty 为 asserted/tentative/undecided", "category": "商品与道具使用 categories；其他物品使用独立的 other_categories，且没有所属公司", "idea_types": "灵感主要讨论的方面", "product_directions": "灵感中有明确依据的商品品类",
+		"fields": map[string]string{"variant_group_id": "同一商品各款共享的分组 ID；具体款仍使用原物品 ID", "variant_name": "口味／样式名称，可留空；variant_description 为当前款差异说明", "id": "kind:id；fetch 使用完整 ID，company_id 筛选使用不带前缀的公司 ID", "attributes": "商品、道具与其他物品的动态设定属性；certainty 为 asserted/tentative/undecided", "category": "商品与道具使用 categories；其他物品使用独立的 other_categories，且没有所属公司", "idea_types": "灵感主要讨论的方面", "product_directions": "灵感中有明确依据的商品品类",
 			"related": "关联摘要；list_records 的 related_to 可分页读取所有关联", "verification": "配方验证状态 untested/verified/invalid", "attachments": "仅文件名、类型、大小、时间等元信息",
-			"relations":          "candidate/adopted/rejected 为灵感关联状态；company_item/recipe_output/recipe_ingredient 为公司物品/配方产物/配方材料",
+			"relations":          "candidate/adopted/rejected 为灵感关联状态；company_item/recipe_output/recipe_ingredient/product_variant 为公司物品/配方产物/配方材料/同商品其他款",
 			"deleted_references": "已删除材料和产物仅保留引用 ID 与数量；详情不可读取"}}, nil
 }

@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ItemCreateDialog from '../components/ItemCreateDialog.vue'
-import ProductCatalogItem from '../components/ProductCatalogItem.vue'
+import ProductCatalogGroup from '../components/ProductCatalogGroup.vue'
 import ProductBatchEditDialog from '../components/ProductBatchEditDialog.vue'
 import ProductSelectionBar from '../components/ProductSelectionBar.vue'
 import { api } from '../api'
@@ -19,9 +19,14 @@ const other = props.kind === 'other'
 const noun = itemLabel(props.kind)
 const collection = itemCollection(props.kind)
 const route = useRoute()
-type ProductListState = { items: Product[]; total: number; query: string; filters: Record<string, string[]>; layout: 'list' | 'grid'; sort: ProductSort }
-const previous: ProductListState | undefined = useListNavigation<ProductListState>(() => ({ items: products.value, total: total.value, query: query.value, filters: filters.value, layout: layout.value, sort: sort.value }))
+type ProductListState = { items: Product[]; total: number; query: string; filters: Record<string, string[]>; layout: 'list' | 'grid'; sort: ProductSort; expandedGroups: string[] }
+const previous: ProductListState | undefined = useListNavigation<ProductListState>(() => ({ items: products.value, total: total.value, query: query.value, filters: filters.value, layout: layout.value, sort: sort.value, expandedGroups: [...expandedGroups.value] }))
 const products = ref<Product[]>(previous?.items || []); const total = ref(previous?.total || 0); const query = ref(previous?.query || ''); const loading = ref(true); const loadingMore = ref(false); const error = ref(''); const showCreate = ref(false);
+const expandedGroups = ref(new Set(previous?.expandedGroups || []))
+function toggleGroup(groupID: string) {
+  if (expandedGroups.value.has(groupID)) expandedGroups.value.delete(groupID)
+  else expandedGroups.value.add(groupID)
+}
 const searchPending = ref(false)
 const selectionLocked = computed(() => loading.value || searchPending.value)
 const selecting = ref(false)
@@ -33,6 +38,7 @@ const allDisplayedSelected = computed(() => products.value.length > 0 && product
 async function startSelection() {
   closeSort()
   selecting.value = true
+  await load(true, true)
   await nextTick()
   const top = Math.max(0, document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0)
   const bottom = document.querySelector('.product-selection-bar')?.getBoundingClientRect().top || window.innerHeight
@@ -50,7 +56,7 @@ function finishSelection() {
   selecting.value = false
   selected.value = new Map()
   batchProducts.value = undefined
-  void nextTick(() => selectionTrigger.value?.focus({ preventScroll: true }))
+  void load(true, true).then(() => nextTick(() => selectionTrigger.value?.focus({ preventScroll: true })))
 }
 function clearSelection() { selected.value = new Map(); batchProducts.value = undefined }
 function toggleProduct(product: Product) {
@@ -192,6 +198,7 @@ async function load(reset = true, preserveDepth = false) {
   try {
     const offset = reset ? 0 : products.value.length
     const parameters = new URLSearchParams({ q: query.value, sort: sort.value, limit: '30', offset: String(offset) })
+    if (!other && !selecting.value) parameters.set('grouped', '1')
     if (typeof route.query.company_id === 'string') parameters.set('company_id',route.query.company_id)
     for (const [key, values] of Object.entries(filters.value)) for (const value of values) parameters.append(key, value)
     const signal = requestController?.signal
@@ -280,10 +287,11 @@ useEvents(refresh)
     <form class="toolbar product-toolbar" @submit.prevent="searchNow">
       <div class="product-search">
         <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
-        <input v-model="query" type="search" :aria-label="`搜索${noun}`" :placeholder="other ? '搜索中英文名、分类、描述或动态属性' : '搜索名称、公司、分类或描述'" />
+        <input v-model="query" type="search" :aria-label="`搜索${noun}`" :placeholder="other ? '搜索中英文名、分类、描述或动态属性' : '搜索名称、口味、样式、公司或分类'" />
       </div>
       <FilterPopover id="product-filter-popover" v-model="filters" :label="noun" :groups="filterGroups" />
     </form>
+    <p v-if="selecting" class="muted">按具体款式选择；修改公司或分类会同步到同一商品的其他款式。</p>
     <div v-if="activeFilters.length" class="product-active-filters" aria-label="已选筛选条件">
       <button v-for="filter in activeFilters" :key="`${filter.key}:${filter.value}`" type="button" :aria-label="`移除${filter.label}筛选`" @click="removeFilter(filter.key, filter.value)">{{ filter.label }}<span aria-hidden="true">×</span></button>
     </div>
@@ -316,7 +324,7 @@ useEvents(refresh)
     <p v-if="loading && !products.length" class="muted">读取中…</p>
     <div v-else-if="products.length" ref="catalog" class="product-catalog" :class="`is-${layout}`" :aria-busy="loading">
       <div v-if="layout === 'list'" class="product-list-header" aria-hidden="true"><span>{{ noun }}名称</span><span v-if="!other">所属公司</span><span>{{ noun }}分类</span><span>制作状态</span></div>
-      <ProductCatalogItem v-for="product in products" :key="product.id" :product="product" :layout="layout" :selectable="selecting" :selected="selected.has(product.id)" :selection-disabled="selectionLocked" @toggle="toggleProduct(product)" />
+      <ProductCatalogGroup v-for="product in products" :key="!selecting && product.variant_group_id || product.id" :product="product" :layout="layout" :selectable="selecting" :selected="selected.has(product.id)" :selection-disabled="selectionLocked" :query="query" :expanded="expandedGroups.has(product.variant_group_id)" @expand="toggleGroup(product.variant_group_id)" @toggle="toggleProduct(product)" />
     </div>
     <div v-else class="empty-state">{{ hasConditions ? `没有找到符合条件的${noun}，试试其他关键词或筛选条件。` : `还没有${noun}。可以在这里创建，也可以从一条灵感主动创建。` }}</div>
     <div v-if="products.length < total" ref="loadMoreTrigger" class="load-more-status muted" role="status">{{ loadingMore ? '正在读取…' : '' }}</div>

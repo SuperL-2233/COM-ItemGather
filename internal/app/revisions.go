@@ -93,6 +93,14 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 		writeError(w, err)
 		return
 	}
+	// Pre-variant history has no group field; keep the current variant details.
+	if data.VariantGroupID != "" {
+		item.VariantName, item.VariantDescription = data.VariantName, data.VariantDescription
+	}
+	if err = validateVariant(r.Context(), tx, item); err != nil {
+		writeError(w, err)
+		return
+	}
 	item.ChineseName = clean(data.ChineseName, 160)
 	item.EnglishName = clean(data.EnglishName, 160)
 	item.CompanyID, item.Company, err = resolveItemCompany(r.Context(), tx, item.ItemKind, data.CompanyID, data.Company, user.ID)
@@ -120,7 +128,7 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 	item.Attributes = attrs
 	item.Version++
 	item.UpdatedAt = now()
-	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,use_category=?,tool_settings_json=?,status_option_id=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, legacyStatus, nullString(item.CompanyID), item.UseCategory, encodeJSON(item.ToolSettings), statusID, item.Version, item.UpdatedAt, id, version)
+	result, err := tx.ExecContext(r.Context(), "UPDATE products SET chinese_name=?,english_name=?,company=?,category=?,description=?,development_status=?,company_id=?,use_category=?,tool_settings_json=?,status_option_id=?,variant_name=?,variant_description=?,version=?,updated_at=? WHERE id=? AND version=?", item.ChineseName, item.EnglishName, item.Company, item.Category, item.Description, legacyStatus, nullString(item.CompanyID), item.UseCategory, encodeJSON(item.ToolSettings), statusID, item.VariantName, item.VariantDescription, item.Version, item.UpdatedAt, id, version)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -135,6 +143,10 @@ func (a *App) restoreProductRevision(w http.ResponseWriter, r *http.Request, ver
 		return
 	}
 	if err = addRevision(r.Context(), tx, "product", id, item.Version, &user.ID, "restore_revision", before, productSnapshot(item)); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err = a.syncProductShared(r.Context(), tx, before, item, user.ID, nil); err != nil {
 		writeError(w, err)
 		return
 	}

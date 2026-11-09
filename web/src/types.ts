@@ -11,7 +11,8 @@ export interface Idea {
   author_id: string; author_nickname: string; created_at: string; updated_at: string; version: number; content_version: number
   ai_status: 'idle' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'; ai_error?: string; favorite: boolean; product_count: number; deleted_at?: string
 }
-export interface Product { item_kind: ItemKind; company_id: string; company_deleted: boolean; use_category: string; tool_settings: ToolSettings; id: string; chinese_name: string; english_name: string; company: string; category: string; description: string; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]; development_status: string; development_status_label: string; development_status_color: string; created_by: string; created_at: string; updated_at: string; version: number; idea_count: number; deleted_at?: string }
+export interface VariantDraft { variant_name: string; variant_description: string; development_status: string }
+export interface Product { variant_group_id: string; variant_name: string; variant_description: string; variant_count: number; variants?: Product[]; item_kind: ItemKind; company_id: string; company_deleted: boolean; use_category: string; tool_settings: ToolSettings; id: string; chinese_name: string; english_name: string; company: string; category: string; description: string; attributes: Attribute[]; attachments: Attachment[]; links?: Link[]; development_status: string; development_status_label: string; development_status_color: string; created_by: string; created_at: string; updated_at: string; version: number; idea_count: number; deleted_at?: string }
 export interface Page<T> { items: T[]; total: number; limit: number; offset: number }
 export interface Session { id: string; device_name: string; remember: boolean; created_at: string; last_seen_at: string; expires_at: string; current: boolean }
 export interface MCPConnection { id: string; client_name: string; client_id: string; scope: string; created_at: string; expires_at: string; last_used_at?: string; revoked_at?: string }
@@ -38,5 +39,5 @@ export interface StatusUsage { id: string; label: string; item_count: number; re
 export interface StatusDeletion { id: string; label: string; replacement: string; replacement_label: string; affected_items: number; affected_recipes: number }
 
 export type MindMapCompany = Pick<Company, 'id' | 'chinese_name' | 'english_name' | 'aliases'>
-export type MindMapItem = Pick<Product, 'id' | 'chinese_name' | 'english_name' | 'item_kind' | 'company_id' | 'company_deleted' | 'category' | 'development_status' | 'development_status_label' | 'development_status_color'>
+export type MindMapItem = Pick<Product, 'id' | 'chinese_name' | 'english_name' | 'item_kind' | 'company_id' | 'company_deleted' | 'category' | 'development_status' | 'development_status_label' | 'development_status_color' | 'variant_group_id' | 'variant_name'> & { variant_count?: number }
 export interface ItemMindMap { companies: MindMapCompany[]; items: MindMapItem[]; statuses: ChoiceOption[] }

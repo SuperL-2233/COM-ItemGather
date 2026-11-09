@@ -325,7 +325,7 @@ test('商品列表自动加载后续内容，英文名作为次要信息呈现',
   })
   expect(named.status()).toBe(201)
   await page.goto('/products')
-  await page.getByPlaceholder('搜索名称、公司、分类或描述').fill('自动加载验收商品')
+  await page.getByRole('searchbox', { name: '搜索商品', exact: true }).fill('自动加载验收商品')
   await expect(page.locator('.product-card').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /加载更多/ })).toHaveCount(0)
   const englishName = page.locator('.catalog-english').filter({ hasText: 'Style Sample' })
@@ -348,7 +348,7 @@ test('商品可以通过漏斗覆层搜索选项并组合筛选', async ({ page 
     expect(created.status()).toBe(201)
   }
   await page.goto('/products')
-  await page.getByPlaceholder('搜索名称、公司、分类或描述').fill('筛选器')
+  await page.getByRole('searchbox', { name: '搜索商品', exact: true }).fill('筛选器')
   await expect(page.locator('.product-card')).toHaveCount(2)
 
   const funnel = page.getByRole('button', { name: '筛选商品', exact: true })

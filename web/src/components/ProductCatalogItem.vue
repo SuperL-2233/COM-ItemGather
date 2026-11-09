@@ -4,7 +4,7 @@ import StatusBadge from './StatusBadge.vue'
 import type { Product } from '../types'
 import { developmentStatusLabel, itemLabel, itemPath, productTitle } from '../utils'
 
-const props = defineProps<{ product: Product; layout: 'list' | 'grid'; selectable?: boolean; selected?: boolean; selectionDisabled?: boolean }>()
+const props = defineProps<{ product: Product; layout: 'list' | 'grid'; selectable?: boolean; selected?: boolean; selectionDisabled?: boolean; statusSummary?: string }>()
 const emit = defineEmits<{ toggle: [] }>()
 const cover = computed(() => props.product.attachments[0])
 const categoryLabel = computed(() => props.product.item_kind === 'tool' ? '使用类别' : `${itemLabel(props.product.item_kind)}分类`)
@@ -36,7 +36,7 @@ const category = computed(() => props.product.item_kind === 'tool' ? props.produ
     </div>
     <div class="catalog-status">
       <span class="catalog-field-label">制作状态</span>
-      <StatusBadge class="catalog-status-badge" :label="developmentStatusLabel(product)" :color="product.development_status_color" />
+      <span v-if="statusSummary" class="muted">{{ statusSummary }}</span><StatusBadge v-else class="catalog-status-badge" :label="developmentStatusLabel(product)" :color="product.development_status_color" />
     </div>
   </article>
 </template>

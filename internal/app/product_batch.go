@@ -95,6 +95,11 @@ func (a *App) batchUpdateProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := currentUser(r).ID
+	type sharedUpdate struct {
+		before productFields
+		item   Product
+	}
+	sharedUpdates := []sharedUpdate{}
 	for _, item := range items {
 		before := productSnapshot(item)
 		if body.Category != nil {
@@ -122,10 +127,17 @@ func (a *App) batchUpdateProducts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		item.Version++
+		sharedUpdates = append(sharedUpdates, sharedUpdate{before, item})
 		if err = addRevision(r.Context(), tx, "product", item.ID, item.Version, &user, "update", before, productSnapshot(item)); err == nil {
 			err = a.publish(tx, "product.updated", "product", item.ID)
 		}
 		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	for _, update := range sharedUpdates {
+		if err = a.syncProductShared(r.Context(), tx, update.before, update.item, user, seen); err != nil {
 			writeError(w, err)
 			return
 		}
