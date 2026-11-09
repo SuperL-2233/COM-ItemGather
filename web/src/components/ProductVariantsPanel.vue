@@ -53,8 +53,8 @@ async function move(detach = false) {
 
 <template>
   <section class="panel variants-panel" aria-labelledby="variants-heading">
-    <div class="variants-heading"><h2 id="variants-heading">口味／样式</h2><button type="button" class="secondary small" :disabled="locked || busy || members.length >= 100" @click="adding = !adding; target = undefined">添加新款</button></div>
-    <p class="muted">共 {{ members.length }} 款。每款保留独立图片、制作状态和配方关联。</p>
+    <div class="variants-heading"><h2 id="variants-heading">本商品的全部款式</h2><button type="button" class="secondary small" :disabled="locked || busy || members.length >= 100" @click="adding = !adding; target = undefined">新增另一款</button></div>
+    <p class="muted">共 {{ members.length }} 款。点击款式可切换查看；“新增另一款”会创建独立的新款，不会修改上面的当前款。</p>
     <p v-if="locked" class="muted">请先保存当前修改，再添加或调整归组。</p>
     <ul class="variant-members">
       <li v-for="member in members" :key="member.id" :class="{ current: member.id === product.id }">
@@ -63,8 +63,8 @@ async function move(detach = false) {
       </li>
     </ul>
     <form v-if="adding" class="variant-add" @submit.prevent="add">
-      <h3>添加新款</h3>
-      <label>新款口味／样式<input v-model="draft.variant_name" maxlength="160" placeholder="例如：草莓味、蓝色款" required :disabled="busy" /></label>
+      <h3>新增另一款</h3>
+      <label>另一款口味／样式<input v-model="draft.variant_name" maxlength="160" placeholder="例如：草莓味、蓝色款" required :disabled="busy" /></label>
       <label>新款差异说明<textarea v-model="draft.variant_description" rows="3" placeholder="颜色、贴图等差异，可留空" :disabled="busy"></textarea></label>
       <div class="field"><span class="field-label">新款制作状态</span><RecordOptionSelect v-model="draft.development_status" kind="statuses" label="新款制作状态" /></div>
       <div class="inline-controls"><button type="button" class="secondary" :disabled="busy" @click="adding = false">取消添加</button><button class="primary" :disabled="busy || locked">{{ busy ? '添加中…' : '保存新款' }}</button></div>
