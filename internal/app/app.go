@@ -120,6 +120,7 @@ func (a *App) routes() {
 	handle("POST /api/readme/refresh", a.refreshReadme, true)
 	handle("POST /api/readme/rebase", a.rebaseReadme, true)
 	handle("POST /api/readme/push", a.pushReadme, true)
+	a.registerIssueRoutes(handle)
 	a.registerMCPRoutes()
 	handle("GET /api/ideas", a.listIdeas, true)
 	handle("POST /api/ideas", a.createIdea, true)

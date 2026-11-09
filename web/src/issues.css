@@ -1,0 +1,31 @@
+.issues-page{min-width:0}
+.issue-list-toolbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.1rem}
+.issue-list-toolbar>a{font-size:.82rem;white-space:nowrap}
+.issue-notice{padding:.8rem 1rem;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft);font-size:.88rem;line-height:1.75}
+.issue-notice button{font-size:inherit}.issue-loading{padding:2rem 0;color:var(--muted);text-align:center}
+.issue-list{display:flex;flex-direction:column;gap:.65rem}
+.issue-row{display:flex;align-items:flex-start;gap:.85rem;padding:1.05rem 1.2rem;border:1px solid var(--border);background:var(--surface);border-radius:8px;color:var(--text)}
+.issue-row:hover{border-color:var(--accent);text-decoration:none}
+.issue-state-icon{font-size:1.1rem;line-height:1.6;flex:none}.issue-state-icon.open{color:var(--accent)}.issue-state-icon.closed{color:var(--muted)}
+.issue-row-main{flex:1;min-width:0}.issue-row-title{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-weight:600;line-height:1.6;overflow-wrap:anywhere}.issue-row-title>.issue-label{font-weight:400}
+.issue-row-meta{display:flex;flex-wrap:wrap;gap:.3rem .8rem;color:var(--muted);font-size:.78rem;margin:.45rem 0 0;line-height:1.7}
+.issue-comment-count{font-size:.78rem;color:var(--muted);white-space:nowrap;padding-top:.25rem}
+.issue-back{display:inline-block;font-size:.86rem;margin-bottom:1.2rem}
+.issue-create-page{max-width:900px;margin:0 auto}.issue-create-form{padding:1.4rem}
+.issue-composer{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface)}
+.issue-composer-tabs{display:flex;align-items:center;gap:.2rem;border-bottom:1px solid var(--border);padding:.3rem .4rem;background:var(--surface-soft)}
+.issue-composer-tabs button{padding:.4rem .7rem;background:transparent;color:var(--muted);border-radius:5px;font-size:.84rem}
+.issue-composer-tabs button[aria-pressed=true]{background:var(--surface);color:var(--text)}
+.issue-composer-tabs span{font-size:.75rem;margin-left:auto;padding-right:.4rem;color:var(--muted)}
+.issue-composer textarea{display:block;border:0;border-radius:0;min-height:240px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88rem;line-height:1.8;padding:1rem}
+.issue-composer textarea:focus{outline:none}.issue-composer:focus-within{box-shadow:0 0 0 2px var(--focus)}
+.issue-composer-preview{min-height:240px;padding:1rem}.issue-publishing-identity{color:var(--muted);font-size:.78rem;line-height:1.65;margin:.7rem 0 0}
+.issue-detail-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.2rem}
+.issue-detail-heading>div:first-child{min-width:0;flex:1}.issue-detail-title{display:flex;gap:.7rem;flex-wrap:wrap;align-items:center}.issue-detail-title h1{overflow-wrap:anywhere;margin:0}.issue-detail-title h1>span{font-weight:400;color:var(--muted)}
+.issue-state-badge{display:inline-flex;border-radius:20px;padding:.2rem .65rem;font-size:.76rem;border:1px solid var(--border);white-space:nowrap}
+.issue-state-badge.open{background:var(--surface-soft);color:var(--accent)}.issue-state-badge.closed{color:var(--muted);background:var(--surface-soft)}
+.issue-detail-labels{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;font-size:.8rem;margin-bottom:1rem}
+.issue-description{padding:1.4rem}.issue-comments-heading{display:flex;align-items:center;justify-content:space-between;margin:1.7rem 0 .8rem}.issue-comments-heading h2{margin:0}
+.issue-comment{padding:0;overflow:hidden}.issue-comment>header{display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.65rem 1.1rem;border-bottom:1px solid var(--border);background:var(--surface-soft);font-size:.82rem}.issue-comment>header>a{font-size:.75rem;color:var(--muted)}.issue-comment>.issue-markdown{padding:1.1rem}
+.issue-reply h2{font-size:1rem}.issue-reply-actions{display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:.7rem}.issue-reply-actions p{margin:0}.issue-reply-actions button{margin-left:auto}
+@media(max-width:760px){.issue-page-heading{align-items:center}.issue-page-heading p{font-size:.84rem}.issue-page-heading .heading-actions{gap:.35rem}.issue-page-heading .primary,.issue-page-heading .secondary{font-size:.82rem;min-height:2.35rem;padding:.45rem .65rem}.issue-list-toolbar{gap:.5rem}.issue-list-toolbar>a{font-size:.75rem}.issue-row{gap:.55rem;padding:.85rem .75rem;flex-wrap:wrap}.issue-row-main{flex-basis:calc(100% - 2rem)}.issue-comment-count{padding:0 0 0 1.65rem}.issue-detail-heading{flex-direction:column}.issue-detail-heading .heading-actions{flex-wrap:wrap}.issue-detail-title h1{font-size:1.4rem}.issue-create-form,.issue-description{padding:1rem}.issue-composer textarea,.issue-composer-preview{min-height:200px}.issue-comment>header{padding:.65rem .8rem;flex-wrap:wrap}.issue-comment>.issue-markdown{padding:.85rem}}

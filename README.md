@@ -149,6 +149,18 @@ App 私钥仅由后端读取；安装令牌只缓存在后端内存中，到期�
 
 相关接口均要求网页登录；写入沿用 Session、CSRF 和账号切换保护：`GET/PUT /api/readme`、`GET /api/readme/remote`、`GET/POST /api/readme/authors`、`PATCH/DELETE /api/readme/authors/:id`、`PUT /api/readme/author`（保存当前账号的作者选择）、`POST /api/readme/refresh`、`POST /api/readme/rebase`、`POST /api/readme/push`（明确传入作者 ID 和资料版本）。成功推送保留 commit 链接与实际网站操作人的审计记录。
 
+## GitHub 问题
+
+“读我”右侧的“问题”位于 `/issues`，直接读取同一游戏主仓库的 GitHub Issues。支持待处理／已关闭／全部筛选、分页、问题详情和评论、新建问题、发布评论、关闭和重新打开；自动排除 Pull Request。说明与评论的 Markdown 预览、HTML 过滤在客户端执行，预览不会改写待发布的原文。GitHub 是问题和评论的数据源，使用“刷新”读取外部更新；未发布内容在请求失败时保留，离开页面前会提示。
+
+复用上面的五个 `README_GITHUB_*` 配置，无需新的 App、私钥或个人 GitHub 授权。为现有 GitHub App 增加仓库权限 **Issues: Read and write**，并由安装账号在 GitHub 的 **Installed GitHub Apps → Configure** 中接受新权限；仅修改 App 注册设置不会自动给既有安装授予新权限。仓库本身也须启用 Issues。无需开启 Webhook。
+
+后端为 Issues 单独申请仅限配置仓库的 `issues: write` 安装令牌，与 README 的 `contents: write` 令牌分别缓存。Issues 新权限尚未批准时，原有 README 读取和提交仍可使用。私钥和令牌不发送给浏览器。
+
+Issue 和评论显示的 GitHub 作者是机器人，不能使用 README 的作者下拉框指定个人 GitHub 身份。网站在发布正文末尾追加实际登录用户的昵称，并在审计日志记录用户 ID；原文其余部分保持原样。GitHub 的作者身份归属遵循 [App 安装认证规则](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation)。
+
+接口均要求网页登录，写入沿用 CSRF 与账号切换保护：`GET/POST /api/issues`、`GET/PATCH /api/issues/:number`、`GET/POST /api/issues/:number/comments`。客户端不能指定仓库、分支、任意 GitHub API 路径或伪造操作人；不将私有仓库问题加入公开页面或只读 MCP。发布不做自动重试；若网络中断导致结果不明确，应先刷新或在 GitHub 核对，避免重复发布。
+
 ## AI 只读 MCP 接入
 
 在“设置 → MCP 只读接入”复制服务器地址。ChatGPT 网页端添加自定义 MCP 服务器时选择 **OAuth**；本地客户端选择 **Streamable HTTP + OAuth**。两端共用 `https://你的域名/api/mcp`，首次连接会跳转本站登录，再由用户确认允许或拒绝只读访问。

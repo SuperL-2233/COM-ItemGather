@@ -37,12 +37,14 @@ type readmeAuthor struct {
 }
 
 type readmeGitHub struct {
-	cfg        config.Config
-	http       *http.Client
-	baseURL    string
-	tokenMu    sync.Mutex
-	token      string
-	tokenUntil time.Time
+	cfg             config.Config
+	http            *http.Client
+	baseURL         string
+	tokenMu         sync.Mutex
+	token           string
+	tokenUntil      time.Time
+	issueToken      string
+	issueTokenUntil time.Time
 }
 
 func newReadmeGitHub(cfg config.Config) *readmeGitHub {
@@ -58,6 +60,10 @@ func (g *readmeGitHub) configured() bool {
 }
 
 func (g *readmeGitHub) request(ctx context.Context, method, path, token string, body any) ([]byte, error) {
+	return g.requestWithLimit(ctx, method, path, token, body, 2*maxReadmeBytes+65536)
+}
+
+func (g *readmeGitHub) requestWithLimit(ctx context.Context, method, path, token string, body any, maxBytes int64) ([]byte, error) {
 	var reader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -82,8 +88,8 @@ func (g *readmeGitHub) request(ctx context.Context, method, path, token string, 
 		return nil, fail(502, "github_unavailable", "暂时无法连接 GitHub，草稿已保留，请稍后重试")
 	}
 	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, 2*maxReadmeBytes+65537))
-	if err != nil || len(data) > 2*maxReadmeBytes+65536 {
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	if err != nil || int64(len(data)) > maxBytes {
 		return nil, fail(502, "github_response", "GitHub 返回内容过大或不完整")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -96,6 +102,10 @@ func (g *readmeGitHub) request(ctx context.Context, method, path, token string, 
 			return nil, fail(502, "github_rejected", "GitHub 拒绝了请求，请检查 App 的 Contents 写权限、请求限额及目标分支的保护规则；草稿已保留")
 		case 404:
 			return nil, fail(502, "github_not_found", "无法访问目标仓库、分支或 README.md，请检查 App 安装范围和仓库配置")
+		case 410:
+			return nil, fail(410, "github_gone", "此 GitHub 资源已停用")
+		case 429:
+			return nil, fail(429, "github_rate_limit", "GitHub 请求过于频繁，请稍后重试")
 		default:
 			return nil, fail(502, "github_unavailable", "GitHub 暂时未能完成请求，草稿已保留，请稍后重试")
 		}
@@ -104,13 +114,21 @@ func (g *readmeGitHub) request(ctx context.Context, method, path, token string, 
 }
 
 func (g *readmeGitHub) installationToken(ctx context.Context) (string, error) {
+	return g.installationTokenFor(ctx, "contents")
+}
+
+func (g *readmeGitHub) installationTokenFor(ctx context.Context, permission string) (string, error) {
 	if !g.configured() {
 		return "", fail(503, "github_not_configured", "尚未连接游戏仓库，请管理员配置 GitHub App；仍可编辑和保存草稿")
 	}
 	g.tokenMu.Lock()
 	defer g.tokenMu.Unlock()
-	if g.token != "" && time.Until(g.tokenUntil) > 2*time.Minute {
-		return g.token, nil
+	token, until := &g.token, &g.tokenUntil
+	if permission == "issues" {
+		token, until = &g.issueToken, &g.issueTokenUntil
+	}
+	if *token != "" && time.Until(*until) > 2*time.Minute {
+		return *token, nil
 	}
 	keyPEM, err := os.ReadFile(g.cfg.ReadmePrivateKeyFile)
 	if err != nil || len(keyPEM) > 65536 {
@@ -125,7 +143,7 @@ func (g *readmeGitHub) installationToken(ctx context.Context) (string, error) {
 		return "", fail(503, "github_repository", "游戏仓库配置必须为 owner/repo")
 	}
 	data, err := g.request(ctx, http.MethodPost, "/app/installations/"+url.PathEscape(g.cfg.ReadmeInstallationID)+"/access_tokens", appJWT, map[string]any{
-		"repositories": []string{parts[1]}, "permissions": map[string]string{"contents": "write"},
+		"repositories": []string{parts[1]}, "permissions": map[string]string{permission: "write"},
 	})
 	if err != nil {
 		return "", err
@@ -137,8 +155,8 @@ func (g *readmeGitHub) installationToken(ctx context.Context) (string, error) {
 	if json.Unmarshal(data, &result) != nil || result.Token == "" || !result.ExpiresAt.After(time.Now()) {
 		return "", fail(502, "github_response", "GitHub 未返回有效的安装令牌")
 	}
-	g.token, g.tokenUntil = result.Token, result.ExpiresAt
-	return g.token, nil
+	*token, *until = result.Token, result.ExpiresAt
+	return *token, nil
 }
 
 func signReadmeJWT(keyPEM []byte, appID string, timestamp time.Time) (string, error) {

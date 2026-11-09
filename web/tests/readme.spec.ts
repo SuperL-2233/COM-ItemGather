@@ -144,7 +144,7 @@ test('读我客户端编辑、目录和草稿按账号隔离，作者在设置�
   page.on('request', request => { if (new URL(request.url()).origin !== new URL(page.url()).origin) externalRequests.push(request.url()) })
   await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '读我', exact: true }).click()
   const labels = await page.getByRole('navigation', { name: '主导航' }).getByRole('link').allTextContents()
-  expect(labels.slice(labels.indexOf('公司'), labels.indexOf('搜索') + 1)).toEqual(['公司', '读我', '搜索'])
+  expect(labels.slice(labels.indexOf('公司'), labels.indexOf('搜索') + 1)).toEqual(['公司', '读我', '问题', '搜索'])
   await expect(textbox(page)).toBeVisible()
   await expect(page.locator('.cm-content [role="heading"][aria-level="1"]')).toContainText('游戏编辑验收')
   const outline = page.getByRole('navigation', { name: '章节导航', exact: true })
